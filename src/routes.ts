@@ -283,7 +283,6 @@ function normalizeListing(args: {
     price: source.price?.value?.raw ?? args.listing.price?.value?.raw ?? null,
     priceDisplay: source.price?.value?.display ?? args.listing.price?.value?.display ?? null,
     currency: source.price?.value?.currency?.iso_4217 ?? args.listing.price?.value?.currency?.iso_4217 ?? null,
-    sellerName: source.user_name ?? args.listing.user_name ?? null,
     sellerType: source.user_type ?? args.listing.user_type ?? null,
     isBusiness: source.is_business ?? args.listing.is_business ?? null,
     eliteSeller: source.elite_seller ?? args.listing.elite_seller ?? null,

@@ -74,9 +74,7 @@ export interface OlxRawListing {
   title?: string;
   description?: string;
   category_id?: string;
-  user_name?: string;
   user_type?: string;
-  user_id?: string;
   is_business?: boolean;
   elite_seller?: boolean;
   is_kyc_verified_user?: boolean;
@@ -140,7 +138,6 @@ export interface OlxListingRecord {
   price: number | null;
   priceDisplay: string | null;
   currency: string | null;
-  sellerName: string | null;
   sellerType: string | null;
   isBusiness: boolean | null;
   eliteSeller: boolean | null;

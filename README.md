@@ -1,4 +1,4 @@
-# OLX India Classifieds Scraper - Prices, Sellers & Locations
+# OLX India Classifieds Scraper - Prices, Listings & Locations
 
 The OLX India classifieds scraper extracts real listing data from OLX India by keyword and location. Export to JSON, CSV, Excel, or HTML, or pull via the Apify API — no login and no API key required.
 
@@ -10,7 +10,7 @@ This scraper searches OLX India, reads listings from OLX's public JSON endpoints
 - Search keyword and requested location
 - Category ID and category name when available
 - Price, display price, and currency
-- Seller name, seller type, business seller flag, elite seller flag, and KYC flag when available
+- Seller type, business seller flag, elite seller flag, and KYC flag when available
 - Redacted listing description
 - Status, state, city, area, latitude, and longitude
 - Posted date, created date, and valid-to date
@@ -23,7 +23,7 @@ This scraper searches OLX India, reads listings from OLX's public JSON endpoints
 
 - Classifieds price monitoring for phones, cars, bikes, furniture, and electronics
 - Local resale market research across Indian cities and states
-- Dealer and business-seller discovery without manual OLX searches
+- Dealer and business-listing activity analysis for market research
 - Inventory tracking for second-hand marketplaces and recommerce teams
 - Trend analysis for used-product demand, price ranges, and listing volume
 
@@ -96,7 +96,6 @@ You are charged only after a clean listing record is saved to the dataset.
   "price": 20000,
   "priceDisplay": "₹ 20,000",
   "currency": "INR",
-  "sellerName": "Ibrahim dayatar",
   "sellerType": "Regular",
   "isBusiness": false,
   "eliteSeller": false,
@@ -157,6 +156,12 @@ The actor resolves each requested OLX location through OLX India's public locati
 - Price filters are applied after records are fetched from OLX, so very narrow ranges may require a broader `maxResults` setting.
 - OLX may change or restrict its public endpoints. Use Apify Proxy for larger runs if direct requests become less reliable.
 - This actor is not affiliated with OLX.
+
+## Responsible Use
+
+This Actor is intended for lawful collection of publicly available information only. Users are responsible for ensuring their use complies with the source website's terms, robots.txt, applicable privacy laws, including India's DPDP Act, and all local regulations.
+
+Do not use this Actor to collect, store, sell, or misuse personal data without a lawful basis. The Actor author is not responsible for misuse by end users.
 
 ## License
 

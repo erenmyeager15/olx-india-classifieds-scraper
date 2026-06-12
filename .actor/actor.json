@@ -19,7 +19,7 @@
     "memoryMbytes": 1024,
     "timeoutSecs": 14400
   },
-  "categories": ["ECOMMERCE", "LEAD_GENERATION", "OTHER"],
+  "categories": ["ECOMMERCE", "OTHER"],
   "pricingInfo": {
     "pricingModel": "PAY_PER_EVENT",
     "pricingPerEvent": {
