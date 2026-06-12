@@ -1,0 +1,10 @@
+{
+  "keywords": ["iphone"],
+  "locations": ["Mumbai"],
+  "maxResults": 10,
+  "includeItemDetails": true,
+  "includeDescription": true,
+  "proxyConfiguration": {
+    "useApifyProxy": false
+  }
+}

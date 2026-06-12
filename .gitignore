@@ -1,0 +1,8 @@
+node_modules/
+dist/
+storage/
+.env
+*.log
+probe.mjs
+checkdata.mjs
+test_input.json

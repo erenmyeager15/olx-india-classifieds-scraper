@@ -1,0 +1,75 @@
+{
+  "actorSpecification": 1,
+  "views": {
+    "listings": {
+      "title": "Listings",
+      "transformation": {
+        "fields": [
+          "imageUrl",
+          "searchQuery",
+          "location",
+          "title",
+          "priceDisplay",
+          "sellerName",
+          "sellerType",
+          "isBusiness",
+          "category",
+          "state",
+          "city",
+          "postedAt",
+          "listingUrl",
+          "scrapedAt"
+        ]
+      },
+      "display": {
+        "component": "table",
+        "properties": {
+          "imageUrl": {
+            "label": "Image",
+            "format": "image"
+          },
+          "searchQuery": {
+            "label": "Search"
+          },
+          "location": {
+            "label": "Location"
+          },
+          "title": {
+            "label": "Title"
+          },
+          "priceDisplay": {
+            "label": "Price"
+          },
+          "sellerName": {
+            "label": "Seller"
+          },
+          "sellerType": {
+            "label": "Seller Type"
+          },
+          "isBusiness": {
+            "label": "Business"
+          },
+          "category": {
+            "label": "Category"
+          },
+          "state": {
+            "label": "State"
+          },
+          "city": {
+            "label": "City"
+          },
+          "postedAt": {
+            "label": "Posted"
+          },
+          "listingUrl": {
+            "label": "URL",
+            "format": "link"
+          },
+          "scrapedAt": {
+            "label": "Scraped At"
+          }
+        }
+      }
+    }
+  }
+}

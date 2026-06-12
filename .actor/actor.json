@@ -1,0 +1,37 @@
+{
+  "actorSpecification": 1,
+  "name": "olx-india-classifieds-scraper",
+  "title": "OLX India Classifieds Scraper",
+  "description": "Scrape OLX India classifieds listings with prices, seller type, categories, locations, images, posting dates, and listing URLs. No login or API key required.",
+  "version": "1.0",
+  "buildTag": "latest",
+  "meta": {
+    "templateId": "ts-start"
+  },
+  "dockerfile": "Dockerfile",
+  "input": "../INPUT_SCHEMA.json",
+  "readme": "../README.md",
+  "storages": {
+    "dataset": "./dataset_schema.json"
+  },
+  "defaultRunOptions": {
+    "build": "latest",
+    "memoryMbytes": 1024,
+    "timeoutSecs": 14400
+  },
+  "categories": ["ECOMMERCE", "LEAD_GENERATION", "OTHER"],
+  "pricingInfo": {
+    "pricingModel": "PAY_PER_EVENT",
+    "pricingPerEvent": {
+      "actorChargeEvents": {
+        "listing-scraped": {
+          "eventTitle": "Listing scraped",
+          "eventDescription": "Charged once for each clean OLX India classified listing saved to the dataset.",
+          "eventPriceUsd": 0.002,
+          "isPrimaryEvent": true,
+          "isOneTimeEvent": false
+        }
+      }
+    }
+  }
+}
