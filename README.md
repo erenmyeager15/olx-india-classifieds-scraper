@@ -1,6 +1,8 @@
 # OLX India Classifieds Scraper - Prices, Sellers & Locations
 
-Scrape OLX India classifieds listings and export clean listing data to JSON, CSV, Excel, or HTML, or pull it via the Apify API. This actor searches OLX India by keyword and location, extracts real listing records from OLX public JSON endpoints, and saves prices, seller metadata, locations, images, posting dates, and listing URLs. No login or API key is required.
+The OLX India classifieds scraper extracts real listing data from OLX India by keyword and location. Export to JSON, CSV, Excel, or HTML, or pull via the Apify API — no login and no API key required.
+
+This scraper searches OLX India, reads listings from OLX's public JSON endpoints, and saves prices, seller metadata, categories, locations, images, posting dates, and listing URLs into one clean dataset. Built with Node.js 20, TypeScript, and native fetch, it uses optional Apify residential proxies with retries and resilient extraction so runs stay reliable and repeatable.
 
 ## What It Extracts
 
@@ -55,6 +57,31 @@ You are charged only after a clean listing record is saved to the dataset.
 4. Run the actor and wait for the dataset to fill with OLX listings.
 5. Export the results as JSON, CSV, Excel, or connect through the Apify API.
 
+## Example Input
+
+```json
+{
+  "keywords": ["iphone"],
+  "locations": ["Mumbai"],
+  "maxResults": 50,
+  "includeItemDetails": true,
+  "includeDescription": true
+}
+```
+
+### Multi-city, price-filtered search
+
+```json
+{
+  "keywords": ["swift", "creta"],
+  "locations": ["Delhi", "Bengaluru"],
+  "minPrice": 200000,
+  "maxPrice": 800000,
+  "maxResults": 200,
+  "proxyConfiguration": { "useApifyProxy": true, "apifyProxyGroups": ["RESIDENTIAL"] }
+}
+```
+
 ## Sample Output
 
 ```json
@@ -62,40 +89,61 @@ You are charged only after a clean listing record is saved to the dataset.
   "source": "olx",
   "searchQuery": "iphone",
   "locationQuery": "Mumbai",
-  "listingId": "1845529776",
-  "title": "iPhone 11 128GB With Free Gifts, Bill & Warranty",
+  "listingId": "1845620279",
+  "title": "Iphone Xs ( Gold )",
   "categoryId": "1453",
   "category": "Mobile Phones",
-  "price": 18999,
-  "priceDisplay": "₹ 18,999",
+  "price": 20000,
+  "priceDisplay": "₹ 20,000",
   "currency": "INR",
-  "sellerName": "Mega CellBuddy",
+  "sellerName": "Ibrahim dayatar",
   "sellerType": "Regular",
-  "isBusiness": true,
+  "isBusiness": false,
   "eliteSeller": false,
   "isKycVerified": false,
-  "hasPhoneParam": true,
-  "description": "iPhone 11 128GB. All colours available. Contact: [phone redacted].",
+  "hasPhoneParam": false,
+  "description": "Iphone Xs. Gold colour. 256gb. Battery health 80%. All original (genuine). Contact for more.",
   "status": "Active",
   "state": "Maharashtra",
   "city": "Mumbai",
-  "area": "Naya Nagar",
-  "location": "Naya Nagar, Mumbai, Maharashtra",
-  "latitude": 19.18,
-  "longitude": 72.84,
-  "postedAt": "2026-06-05T17:34:22+05:30",
-  "createdAt": "2026-06-05T17:33:19+05:30",
-  "validTo": "2026-07-05T17:33:19+05:30",
-  "imageUrl": "https://apollo.olx.in/v1/files/example-IN/image;s=505x673",
+  "area": null,
+  "location": "Mumbai, Maharashtra",
+  "latitude": 19.059,
+  "longitude": 72.86,
+  "postedAt": "2026-06-10T19:42:22+05:30",
+  "createdAt": "2026-06-10T19:41:01+05:30",
+  "validTo": "2026-07-06T15:59:14+05:30",
+  "imageUrl": "https://apollo.olx.in/v1/files/ffdgkq7j3he03-IN/image;s=505x673",
   "imageCount": 6,
   "videoCount": 0,
-  "favoriteCount": 12,
-  "listingUrl": "https://www.olx.in/item/iphone-11-128gb-with-free-gifts-bill-and-warranty-iid-1845529776",
+  "favoriteCount": 0,
+  "listingUrl": "https://www.olx.in/item/iphone-xs-gold-iid-1845620279",
   "parameters": {
     "brand": "iPhone"
   },
-  "scrapedAt": "2026-06-12T12:15:00.000Z"
+  "scrapedAt": "2026-06-12T19:55:50.582Z"
 }
+```
+
+## API Example
+
+```bash
+curl -X POST "https://api.apify.com/v2/acts/YOUR_ACTOR_ID/runs?token=YOUR_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"keywords":["iphone"],"locations":["Mumbai"],"maxResults":50}'
+```
+
+```js
+import { ApifyClient } from 'apify-client';
+
+const client = new ApifyClient({ token: 'YOUR_API_TOKEN' });
+const run = await client.actor('YOUR_ACTOR_ID').call({
+  keywords: ['iphone'],
+  locations: ['Mumbai'],
+  maxResults: 50,
+});
+const { items } = await client.dataset(run.defaultDatasetId).listItems();
+console.log(`Got ${items.length} OLX listings`);
 ```
 
 ## How It Works
