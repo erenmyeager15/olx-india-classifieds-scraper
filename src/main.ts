@@ -20,8 +20,17 @@ try {
 
   let saved = 0;
   for await (const record of scrapeOlxListings(input, proxyConfiguration)) {
-    await pushAndCharge(record);
-    saved += 1;
+    const chargingResult = await pushAndCharge(record);
+    const recordWasSaved = chargingResult.chargedCount > 0 || !chargingResult.eventChargeLimitReached;
+    if (recordWasSaved) {
+      saved += 1;
+    }
+
+    if (chargingResult.eventChargeLimitReached) {
+      await Actor.setStatusMessage(`Stopped at the user's spending limit after ${saved} listings`);
+      log.warning('User spending limit reached; stopping before more OLX search or detail requests.');
+      break;
+    }
   }
 
   if (saved === 0) {

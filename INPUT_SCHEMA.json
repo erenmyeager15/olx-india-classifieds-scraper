@@ -1,6 +1,7 @@
 {
   "title": "OLX India Classifieds Scraper Input",
   "type": "object",
+  "description": "Low-cost sample: search iphone listings in Mumbai and save 5 results. Increase max results only after the sample output looks right.",
   "schemaVersion": 1,
   "properties": {
     "keywords": {
@@ -40,9 +41,9 @@
     "maxResults": {
       "title": "Max results",
       "type": "integer",
-      "description": "Maximum number of unique listings to save. The actor supports up to 500 listings per run.",
+      "description": "Maximum number of unique listings to save. Start with 5 for a low-cost test. The actor supports up to 500 listings per run.",
       "editor": "number",
-      "default": 50,
+      "default": 5,
       "minimum": 1,
       "maximum": 500
     },
@@ -63,7 +64,7 @@
     "proxyConfiguration": {
       "title": "Proxy configuration",
       "type": "object",
-      "description": "Optional proxy settings. OLX usually works without a proxy, but Apify Proxy can improve reliability for larger runs.",
+      "description": "Optional proxy settings. OLX usually works without a proxy, but Apify Proxy can improve reliability for larger runs. Proxy traffic may be billed as platform usage.",
       "editor": "proxy",
       "default": {
         "useApifyProxy": false

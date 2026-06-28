@@ -46,14 +46,20 @@ export function normalizeInput(input: ActorInput | null | undefined): Normalized
   const locations = uniqueStrings(input?.locations)
     .map((location) => location.trim())
     .filter(Boolean);
+  const minPrice = normalizeNumber(input?.minPrice);
+  const maxPrice = normalizeNumber(input?.maxPrice);
+
+  if (minPrice !== undefined && maxPrice !== undefined && minPrice > maxPrice) {
+    throw new Error(`Minimum price (${minPrice}) cannot be greater than maximum price (${maxPrice}).`);
+  }
 
   return {
     keywords: keywords.length ? keywords : ['iphone'],
     locations: locations.length ? locations : ['Mumbai'],
     categoryId: cleanOptionalString(input?.categoryId),
-    minPrice: normalizeNumber(input?.minPrice),
-    maxPrice: normalizeNumber(input?.maxPrice),
-    maxResults: clampNumber(input?.maxResults ?? 50, 1, MAX_RESULTS),
+    minPrice,
+    maxPrice,
+    maxResults: clampNumber(input?.maxResults ?? 5, 1, MAX_RESULTS),
     includeItemDetails: input?.includeItemDetails ?? true,
     includeDescription: input?.includeDescription ?? true,
   };
@@ -87,7 +93,19 @@ export async function* scrapeOlxListings(
         page: job.page,
       });
 
-      const response = await fetchJson<OlxSearchResponse>(searchUrl, { proxyConfiguration });
+      let response: OlxSearchResponse;
+      try {
+        response = await fetchJson<OlxSearchResponse>(searchUrl, { proxyConfiguration });
+      } catch (error) {
+        job.done = true;
+        log.warning(`Skipping OLX search job after repeated request failures`, {
+          keyword: job.keyword,
+          location: job.location.name ?? job.location.query ?? 'India',
+          page: job.page,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        continue;
+      }
       for (const [id, name] of extractCategoryNames(response.metadata?.filters ?? [])) {
         categoryNames.set(id, name);
       }
@@ -138,9 +156,10 @@ export async function* scrapeOlxListings(
   }
 }
 
-export async function pushAndCharge(record: OlxListingRecord): Promise<void> {
-  await Actor.pushData(record);
-  await Actor.charge({ eventName: CHARGE_EVENT_NAME });
+export async function pushAndCharge(record: OlxListingRecord) {
+  // Push and charge atomically so records beyond the user's charge limit are
+  // not saved for free and billing failures stop the run immediately.
+  return Actor.pushData(record, CHARGE_EVENT_NAME);
 }
 
 async function resolveLocationTargets(locations: string[], proxyConfiguration?: ProxyLike): Promise<LocationTarget[]> {
@@ -153,7 +172,17 @@ async function resolveLocationTargets(locations: string[], proxyConfiguration?: 
     }
 
     const url = `${OLX_BASE_URL}/api/locations/autocomplete?input=${encodeURIComponent(location)}`;
-    const response = await fetchJson<OlxLocationResponse>(url, { proxyConfiguration });
+    let response: OlxLocationResponse;
+    try {
+      response = await fetchJson<OlxLocationResponse>(url, { proxyConfiguration });
+    } catch (error) {
+      log.warning(`Could not resolve OLX location after retries, falling back to India-wide search`, {
+        location,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      targets.push({ query: location });
+      continue;
+    }
     const suggestion = pickBestLocation(location, response.data?.suggestions ?? []);
 
     if (!suggestion) {

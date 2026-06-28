@@ -1,0 +1,14 @@
+{
+  "actorOutputSchemaVersion": 1,
+  "title": "OLX India Classifieds Scraper Output",
+  "description": "Structured OLX India classified listing records with search and location queries, listing IDs, titles, categories, prices, seller flags, descriptions, statuses, locations, coordinates, dates, image and video counts, favorite counts, listing URLs, parameters, and scraped timestamps.",
+  "type": "object",
+  "properties": {
+    "results": {
+      "type": "string",
+      "title": "OLX India listing records",
+      "description": "Clean dataset items containing public OLX India classified listing, price, seller, category, location, media, parameter, and URL data.",
+      "template": "{{links.apiDefaultDatasetUrl}}/items"
+    }
+  }
+}

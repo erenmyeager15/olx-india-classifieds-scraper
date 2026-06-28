@@ -1,8 +1,10 @@
 # OLX India Classifieds Scraper - Prices, Listings & Locations
 
-The OLX India classifieds scraper extracts real listing data from OLX India by keyword and location. Export to JSON, CSV, Excel, or HTML, or pull via the Apify API — no login and no API key required.
+The OLX India classifieds scraper extracts public listing data from OLX India by keyword and location. Export to JSON, CSV, Excel, or HTML, or pull via the Apify API — no login and no API key required.
 
 This scraper searches OLX India, reads listings from OLX's public JSON endpoints, and saves prices, seller metadata, categories, locations, images, posting dates, and listing URLs into one clean dataset. Built with Node.js 20, TypeScript, and native fetch, it uses optional Apify residential proxies with retries and resilient extraction so runs stay reliable and repeatable.
+
+For a low-cost first run, use the default sample input: `iphone` in `Mumbai`, `5` listings, with item details and descriptions enabled.
 
 ## What It Extracts
 
@@ -33,7 +35,9 @@ This scraper searches OLX India, reads listings from OLX's public JSON endpoints
 | --- | ---: | ---: | ---: |
 | `listing-scraped` | `$0.002` per listing | `$2.00` | `$20.00` |
 
-You are charged only after a clean listing record is saved to the dataset.
+Each clean listing is saved and charged atomically. The Actor stops before further OLX requests when the user's spending limit is reached.
+
+Platform usage and proxy traffic may be billed separately by Apify depending on your plan and run settings. To control cost, start with one keyword, one location, and `maxResults: 5`; increase volume only after the sample output looks right. Keep item details and descriptions enabled when you need richer data, and disable them for faster large runs. OLX usually works without a proxy, so enable Apify Proxy only if direct requests become unreliable.
 
 ## Input
 
@@ -44,10 +48,10 @@ You are charged only after a clean listing record is saved to the dataset.
 | `categoryId` | string | Optional OLX category ID. Leave empty to search all categories. |
 | `minPrice` | integer | Optional minimum price in INR. |
 | `maxPrice` | integer | Optional maximum price in INR. |
-| `maxResults` | integer | Number of unique listings to save, up to 500. |
-| `includeItemDetails` | boolean | Fetch each item detail endpoint for richer fields. |
+| `maxResults` | integer | Number of unique listings to save, up to 500. Start with `5` for a low-cost test. |
+| `includeItemDetails` | boolean | Fetch each item detail endpoint for richer fields. Disable for faster large runs. |
 | `includeDescription` | boolean | Include descriptions with contact-like strings redacted. |
-| `proxyConfiguration` | object | Optional Apify Proxy settings. |
+| `proxyConfiguration` | object | Optional Apify Proxy settings. Proxy traffic may add platform usage cost. |
 
 ## How to Scrape OLX India Classifieds (Step by Step)
 
@@ -63,7 +67,7 @@ You are charged only after a clean listing record is saved to the dataset.
 {
   "keywords": ["iphone"],
   "locations": ["Mumbai"],
-  "maxResults": 50,
+  "maxResults": 5,
   "includeItemDetails": true,
   "includeDescription": true
 }
@@ -82,7 +86,7 @@ You are charged only after a clean listing record is saved to the dataset.
 }
 ```
 
-## Sample Output
+## Output dataset
 
 ```json
 {
@@ -129,7 +133,7 @@ You are charged only after a clean listing record is saved to the dataset.
 ```bash
 curl -X POST "https://api.apify.com/v2/acts/YOUR_ACTOR_ID/runs?token=YOUR_API_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"keywords":["iphone"],"locations":["Mumbai"],"maxResults":50}'
+  -d '{"keywords":["iphone"],"locations":["Mumbai"],"maxResults":5}'
 ```
 
 ```js
@@ -139,7 +143,7 @@ const client = new ApifyClient({ token: 'YOUR_API_TOKEN' });
 const run = await client.actor('YOUR_ACTOR_ID').call({
   keywords: ['iphone'],
   locations: ['Mumbai'],
-  maxResults: 50,
+  maxResults: 5,
 });
 const { items } = await client.dataset(run.defaultDatasetId).listItems();
 console.log(`Got ${items.length} OLX listings`);
