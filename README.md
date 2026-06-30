@@ -1,10 +1,10 @@
 # OLX India Classifieds Scraper - Prices, Listings & Locations
 
-The OLX India classifieds scraper extracts public listing data from OLX India by keyword and location. Export to JSON, CSV, Excel, or HTML, or pull via the Apify API — no login and no API key required.
+The OLX India classifieds scraper extracts public listing data from OLX India by keyword and location. Export to JSON, CSV, Excel, or HTML, or pull via the Apify API. No OLX login or OLX API key is required.
 
-This scraper searches OLX India, reads listings from OLX's public JSON endpoints, and saves prices, seller metadata, categories, locations, images, posting dates, and listing URLs into one clean dataset. Built with Node.js 20, TypeScript, and native fetch, it uses optional Apify residential proxies with retries and resilient extraction so runs stay reliable and repeatable.
+This scraper searches OLX India, reads listings from OLX's public JSON endpoints, and saves prices, seller metadata, categories, locations, images, posting dates, and listing URLs into one clean dataset. Built with Node.js 20, TypeScript, and native fetch, it uses optional Apify Proxy with retries and resilient extraction so runs stay reliable and repeatable.
 
-For a low-cost first run, use the default sample input: `iphone` in `Mumbai`, `5` listings, with item details and descriptions enabled.
+For a low-cost first run, use the default sample input: `iphone` in `Mumbai`, `1` listing, with item details and descriptions disabled.
 
 ## What It Extracts
 
@@ -13,9 +13,9 @@ For a low-cost first run, use the default sample input: `iphone` in `Mumbai`, `5
 - Category ID and category name when available
 - Price, display price, and currency
 - Seller type, business seller flag, elite seller flag, and KYC flag when available
-- Redacted listing description
+- Optional redacted listing description
 - Status, state, city, area, latitude, and longitude
-- Posted date, created date, and valid-to date
+- Posted date, created date, and valid-to date when available
 - Main image URL, image count, video count, and favorite count
 - OLX listing URL
 - Non-sensitive listing parameters such as brand, model, year, fuel type, or size when available
@@ -31,35 +31,40 @@ For a low-cost first run, use the default sample input: `iphone` in `Mumbai`, `5
 
 ## Pricing
 
-| Event | Price | 1,000 listings | 10,000 listings |
-| --- | ---: | ---: | ---: |
-| `listing-scraped` | `$0.002` per listing | `$2.00` | `$20.00` |
+| Event | Price | Notes |
+| --- | ---: | --- |
+| `apify-actor-start` | `$0.00005` per GB | Charged when the Actor starts. A 4 GB run charges 4 start events. |
+| `listing-scraped` | `$0.002` per listing | Charged once for each clean OLX India listing saved to the dataset. |
 
-Each clean listing is saved and charged atomically. The Actor stops before further OLX requests when the user's spending limit is reached.
+Example listing-event cost: 1,000 saved listings cost `$2.00`; 10,000 saved listings cost `$20.00`. Start events are tiny but still included in paid runs.
 
-Platform usage and proxy traffic may be billed separately by Apify depending on your plan and run settings. To control cost, start with one keyword, one location, and `maxResults: 5`; increase volume only after the sample output looks right. Keep item details and descriptions enabled when you need richer data, and disable them for faster large runs. OLX usually works without a proxy, so enable Apify Proxy only if direct requests become unreliable.
+Each clean listing is saved and charged atomically. The Actor stops before further OLX search or detail requests when the user's maximum run cost is reached.
+
+To control cost, start with one keyword, one location, and `maxResults: 1`. Increase volume only after the sample output looks right. Keep item details and descriptions disabled for the cheapest first run; enable them only when you need richer fields. OLX usually works without a proxy for low-volume checks, so enable Apify Proxy only if direct requests become unreliable or if you are running larger jobs.
 
 ## Input
 
-| Field | Type | Description |
-| --- | --- | --- |
-| `keywords` | string array | Search terms such as `iphone`, `sofa`, `swift`, or `laptop`. |
-| `locations` | string array | City, state, neighborhood, or `India`. Examples: `Mumbai`, `Delhi`, `Bengaluru`, `Maharashtra`. |
-| `categoryId` | string | Optional OLX category ID. Leave empty to search all categories. |
-| `minPrice` | integer | Optional minimum price in INR. |
-| `maxPrice` | integer | Optional maximum price in INR. |
-| `maxResults` | integer | Number of unique listings to save, up to 500. Start with `5` for a low-cost test. |
-| `includeItemDetails` | boolean | Fetch each item detail endpoint for richer fields. Disable for faster large runs. |
-| `includeDescription` | boolean | Include descriptions with contact-like strings redacted. |
-| `proxyConfiguration` | object | Optional Apify Proxy settings. Proxy traffic may add platform usage cost. |
+| Field | Type | Default | Description |
+| --- | --- | --- | --- |
+| `keywords` | string array | `["iphone"]` | Search terms such as `iphone`, `sofa`, `swift`, or `laptop`. Up to 10 items. |
+| `locations` | string array | `["Mumbai"]` | City, state, neighborhood, or `India`. Examples: `Mumbai`, `Delhi`, `Bengaluru`, `Maharashtra`. Up to 10 items. |
+| `categoryId` | string | empty | Optional OLX category ID. Leave empty to search all categories. |
+| `minPrice` | integer | empty | Optional minimum price in INR. |
+| `maxPrice` | integer | empty | Optional maximum price in INR. |
+| `maxResults` | integer | `1` | Number of unique listings to save, up to 500. |
+| `includeItemDetails` | boolean | `false` | Fetch each item detail endpoint for richer fields. Enable only when needed. |
+| `includeDescription` | boolean | `false` | Include descriptions with contact-like strings redacted. |
+| `proxyConfiguration` | object | direct request | Optional Apify Proxy settings. |
 
-## How to Scrape OLX India Classifieds (Step by Step)
+The actor runs at 4 GB memory with a 60-minute timeout. It allows up to 25 keyword/location combinations per run so accidental broad grids do not create expensive or confusing jobs.
+
+## How to Scrape OLX India Classifieds
 
 1. Enter one or more keywords, such as `iphone`, `bike`, or `flat`.
 2. Add one or more locations, such as `Mumbai`, `Delhi`, or `India`.
 3. Optionally set a category ID, price range, and max result count.
-4. Run the actor and wait for the dataset to fill with OLX listings.
-5. Export the results as JSON, CSV, Excel, or connect through the Apify API.
+4. Run the Actor and wait for the dataset to fill with OLX listings.
+5. Export the results as JSON, CSV, Excel, HTML, or connect through the Apify API.
 
 ## Example Input
 
@@ -67,9 +72,10 @@ Platform usage and proxy traffic may be billed separately by Apify depending on 
 {
   "keywords": ["iphone"],
   "locations": ["Mumbai"],
-  "maxResults": 5,
-  "includeItemDetails": true,
-  "includeDescription": true
+  "maxResults": 1,
+  "includeItemDetails": false,
+  "includeDescription": false,
+  "proxyConfiguration": { "useApifyProxy": false }
 }
 ```
 
@@ -81,12 +87,14 @@ Platform usage and proxy traffic may be billed separately by Apify depending on 
   "locations": ["Delhi", "Bengaluru"],
   "minPrice": 200000,
   "maxPrice": 800000,
-  "maxResults": 200,
+  "maxResults": 20,
+  "includeItemDetails": true,
+  "includeDescription": true,
   "proxyConfiguration": { "useApifyProxy": true, "apifyProxyGroups": ["RESIDENTIAL"] }
 }
 ```
 
-## Output dataset
+## Output Dataset
 
 ```json
 {
@@ -94,18 +102,18 @@ Platform usage and proxy traffic may be billed separately by Apify depending on 
   "searchQuery": "iphone",
   "locationQuery": "Mumbai",
   "listingId": "1845620279",
-  "title": "Iphone Xs ( Gold )",
+  "title": "Iphone Xs Gold",
   "categoryId": "1453",
   "category": "Mobile Phones",
   "price": 20000,
-  "priceDisplay": "₹ 20,000",
+  "priceDisplay": "INR 20,000",
   "currency": "INR",
   "sellerType": "Regular",
   "isBusiness": false,
   "eliteSeller": false,
   "isKycVerified": false,
   "hasPhoneParam": false,
-  "description": "Iphone Xs. Gold colour. 256gb. Battery health 80%. All original (genuine). Contact for more.",
+  "description": "Iphone Xs. Gold colour. 256gb. Battery health 80%. All original.",
   "status": "Active",
   "state": "Maharashtra",
   "city": "Mumbai",
@@ -116,7 +124,7 @@ Platform usage and proxy traffic may be billed separately by Apify depending on 
   "postedAt": "2026-06-10T19:42:22+05:30",
   "createdAt": "2026-06-10T19:41:01+05:30",
   "validTo": "2026-07-06T15:59:14+05:30",
-  "imageUrl": "https://apollo.olx.in/v1/files/ffdgkq7j3he03-IN/image;s=505x673",
+  "imageUrl": "https://apollo.olx.in/v1/files/example-IN/image;s=505x673",
   "imageCount": 6,
   "videoCount": 0,
   "favoriteCount": 0,
@@ -128,22 +136,26 @@ Platform usage and proxy traffic may be billed separately by Apify depending on 
 }
 ```
 
+Descriptions are included only when `includeDescription` is enabled. Phone-like strings and email addresses are redacted, and sensitive contact parameters are not exposed.
+
 ## API Example
 
 ```bash
-curl -X POST "https://api.apify.com/v2/acts/YOUR_ACTOR_ID/runs?token=YOUR_API_TOKEN" \
+curl -X POST "https://api.apify.com/v2/acts/fascinating_lentil~olx-india-classifieds-scraper/runs?token=YOUR_API_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"keywords":["iphone"],"locations":["Mumbai"],"maxResults":5}'
+  -d '{"keywords":["iphone"],"locations":["Mumbai"],"maxResults":1,"includeItemDetails":false,"includeDescription":false}'
 ```
 
 ```js
 import { ApifyClient } from 'apify-client';
 
 const client = new ApifyClient({ token: 'YOUR_API_TOKEN' });
-const run = await client.actor('YOUR_ACTOR_ID').call({
+const run = await client.actor('fascinating_lentil/olx-india-classifieds-scraper').call({
   keywords: ['iphone'],
   locations: ['Mumbai'],
-  maxResults: 5,
+  maxResults: 1,
+  includeItemDetails: false,
+  includeDescription: false,
 });
 const { items } = await client.dataset(run.defaultDatasetId).listItems();
 console.log(`Got ${items.length} OLX listings`);
@@ -151,7 +163,9 @@ console.log(`Got ${items.length} OLX listings`);
 
 ## How It Works
 
-The actor resolves each requested OLX location through OLX India's public location autocomplete endpoint, searches the public OLX relevance API, deduplicates listings by ID, optionally fetches the item detail endpoint, normalizes fields, redacts contact-like strings, and writes records to the Apify dataset.
+The actor resolves each requested OLX location through OLX India's public location autocomplete endpoint, searches the public OLX relevance API, deduplicates listings by ID, optionally fetches item detail endpoints, normalizes fields, redacts contact-like strings, and writes records to the Apify dataset.
+
+If a specific location cannot be resolved, the actor skips it instead of silently searching all of India under the wrong location label. If no requested location can be resolved, the run fails with a clear error.
 
 ## Known Limits
 

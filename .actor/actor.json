@@ -17,14 +17,28 @@
   },
   "defaultRunOptions": {
     "build": "latest",
-    "memoryMbytes": 1024,
+    "memoryMbytes": 4096,
     "timeoutSecs": 3600
   },
+  "minMemoryMbytes": 4096,
+  "maxMemoryMbytes": 4096,
   "categories": ["ECOMMERCE", "OTHER"],
+  "categoriesVersion": "1.0.0",
+  "exampleRunInput": {
+    "body": "{\"keywords\":[\"iphone\"],\"locations\":[\"Mumbai\"],\"maxResults\":1,\"includeItemDetails\":false,\"includeDescription\":false,\"proxyConfiguration\":{\"useApifyProxy\":false}}",
+    "contentType": "application/json"
+  },
   "pricingInfo": {
     "pricingModel": "PAY_PER_EVENT",
     "pricingPerEvent": {
       "actorChargeEvents": {
+        "apify-actor-start": {
+          "eventTitle": "Actor Start",
+          "eventDescription": "Charged when the Actor starts. Number of events depends on memory (one per GB, minimum one).",
+          "eventPriceUsd": 0.00005,
+          "isPrimaryEvent": false,
+          "isOneTimeEvent": true
+        },
         "listing-scraped": {
           "eventTitle": "Listing scraped",
           "eventDescription": "Charged once for each clean OLX India classified listing saved to the dataset.",

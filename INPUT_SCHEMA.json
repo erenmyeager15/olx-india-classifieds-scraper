@@ -1,7 +1,7 @@
 {
   "title": "OLX India Classifieds Scraper Input",
   "type": "object",
-  "description": "Low-cost sample: search iphone listings in Mumbai and save 5 results. Increase max results only after the sample output looks right.",
+  "description": "Low-cost sample: search iphone listings in Mumbai and save 1 result without detail or description fetches. Increase max results only after the sample output looks right.",
   "schemaVersion": 1,
   "properties": {
     "keywords": {
@@ -9,14 +9,16 @@
       "type": "array",
       "description": "One or more OLX search keywords. The actor searches each keyword and deduplicates listings by listing ID.",
       "editor": "stringList",
-      "default": ["iphone"]
+      "default": ["iphone"],
+      "maxItems": 10
     },
     "locations": {
       "title": "Locations",
       "type": "array",
       "description": "City, state, neighborhood, or India. Examples: Mumbai, Delhi, Bengaluru, Maharashtra, India.",
       "editor": "stringList",
-      "default": ["Mumbai"]
+      "default": ["Mumbai"],
+      "maxItems": 10
     },
     "categoryId": {
       "title": "Category ID",
@@ -41,30 +43,30 @@
     "maxResults": {
       "title": "Max results",
       "type": "integer",
-      "description": "Maximum number of unique listings to save. Start with 5 for a low-cost test. The actor supports up to 500 listings per run.",
+      "description": "Maximum number of unique listings to save. Start with 1 for a low-cost test. The actor supports up to 500 listings per run.",
       "editor": "number",
-      "default": 5,
+      "default": 1,
       "minimum": 1,
       "maximum": 500
     },
     "includeItemDetails": {
       "title": "Fetch item details",
       "type": "boolean",
-      "description": "Fetch each listing detail endpoint for richer fields such as valid-to date and full parameter data. Disable for faster large runs.",
+      "description": "Fetch each listing detail endpoint for richer fields such as valid-to date and full parameter data. Keep disabled for the cheapest first run.",
       "editor": "checkbox",
-      "default": true
+      "default": false
     },
     "includeDescription": {
       "title": "Include description",
       "type": "boolean",
       "description": "Include listing descriptions with phone-like strings and emails redacted.",
       "editor": "checkbox",
-      "default": true
+      "default": false
     },
     "proxyConfiguration": {
       "title": "Proxy configuration",
       "type": "object",
-      "description": "Optional proxy settings. OLX usually works without a proxy, but Apify Proxy can improve reliability for larger runs. Proxy traffic may be billed as platform usage.",
+      "description": "Optional proxy settings. OLX usually works without a proxy for low-volume tests, while Apify Proxy can improve reliability for larger runs.",
       "editor": "proxy",
       "default": {
         "useApifyProxy": false

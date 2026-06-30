@@ -10,7 +10,6 @@
           "location",
           "title",
           "priceDisplay",
-          "sellerName",
           "sellerType",
           "isBusiness",
           "category",
@@ -39,9 +38,6 @@
           },
           "priceDisplay": {
             "label": "Price"
-          },
-          "sellerName": {
-            "label": "Seller"
           },
           "sellerType": {
             "label": "Seller Type"

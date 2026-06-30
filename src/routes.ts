@@ -18,6 +18,9 @@ export const CHARGE_EVENT_NAME = 'listing-scraped';
 
 const OLX_BASE_URL = 'https://www.olx.in';
 const MAX_RESULTS = 500;
+const DEFAULT_MAX_RESULTS = 1;
+const MAX_FILTER_ITEMS = 10;
+const MAX_SEARCH_JOBS = 25;
 const RESULTS_PER_PAGE = 20;
 const MAX_PAGES_PER_COMBINATION = 25;
 const BLOCKED_STATUS_CODES = new Set([401, 403, 407, 408, 409, 425, 429, 500, 502, 503, 504]);
@@ -40,28 +43,30 @@ interface FetchOptions {
 }
 
 export function normalizeInput(input: ActorInput | null | undefined): NormalizedInput {
-  const keywords = uniqueStrings(input?.keywords)
-    .map((keyword) => keyword.trim())
-    .filter(Boolean);
-  const locations = uniqueStrings(input?.locations)
-    .map((location) => location.trim())
-    .filter(Boolean);
-  const minPrice = normalizeNumber(input?.minPrice);
-  const maxPrice = normalizeNumber(input?.maxPrice);
+  const keywords = uniqueStrings(input?.keywords).slice(0, MAX_FILTER_ITEMS);
+  const locations = uniqueStrings(input?.locations).slice(0, MAX_FILTER_ITEMS);
+  const normalizedKeywords = keywords.length ? keywords : ['iphone'];
+  const normalizedLocations = locations.length ? locations : ['Mumbai'];
+  const minPrice = normalizePrice(input?.minPrice, 'Minimum price');
+  const maxPrice = normalizePrice(input?.maxPrice, 'Maximum price');
+  const searchJobCount = normalizedKeywords.length * normalizedLocations.length;
 
   if (minPrice !== undefined && maxPrice !== undefined && minPrice > maxPrice) {
     throw new Error(`Minimum price (${minPrice}) cannot be greater than maximum price (${maxPrice}).`);
   }
+  if (searchJobCount > MAX_SEARCH_JOBS) {
+    throw new Error(`Too many keyword/location combinations (${searchJobCount}). The maximum is ${MAX_SEARCH_JOBS} per run.`);
+  }
 
   return {
-    keywords: keywords.length ? keywords : ['iphone'],
-    locations: locations.length ? locations : ['Mumbai'],
+    keywords: normalizedKeywords,
+    locations: normalizedLocations,
     categoryId: cleanOptionalString(input?.categoryId),
     minPrice,
     maxPrice,
-    maxResults: clampNumber(input?.maxResults ?? 5, 1, MAX_RESULTS),
-    includeItemDetails: input?.includeItemDetails ?? true,
-    includeDescription: input?.includeDescription ?? true,
+    maxResults: normalizeMaxResults(input?.maxResults),
+    includeItemDetails: input?.includeItemDetails ?? false,
+    includeDescription: input?.includeDescription ?? false,
   };
 }
 
@@ -151,7 +156,9 @@ export async function* scrapeOlxListings(
         yield record;
       }
 
-      await sleep(randomInt(700, 1800));
+      if (yielded < input.maxResults) {
+        await sleep(randomInt(700, 1800));
+      }
     }
   }
 }
@@ -176,18 +183,16 @@ async function resolveLocationTargets(locations: string[], proxyConfiguration?: 
     try {
       response = await fetchJson<OlxLocationResponse>(url, { proxyConfiguration });
     } catch (error) {
-      log.warning(`Could not resolve OLX location after retries, falling back to India-wide search`, {
+      log.warning(`Could not resolve OLX location after retries; skipping location`, {
         location,
         error: error instanceof Error ? error.message : String(error),
       });
-      targets.push({ query: location });
       continue;
     }
     const suggestion = pickBestLocation(location, response.data?.suggestions ?? []);
 
     if (!suggestion) {
-      log.warning(`Could not resolve location, falling back to India-wide search`, { location });
-      targets.push({ query: location });
+      log.warning(`Could not resolve location; skipping location`, { location });
       continue;
     }
 
@@ -199,7 +204,11 @@ async function resolveLocationTargets(locations: string[], proxyConfiguration?: 
     });
   }
 
-  return targets.length ? targets : [{ query: 'India' }];
+  if (!targets.length) {
+    throw new Error('Could not resolve any requested OLX locations. Try India, a major city, or a broader location name.');
+  }
+
+  return targets;
 }
 
 async function fetchItemDetails(id: string, proxyConfiguration?: ProxyLike): Promise<OlxRawListing | undefined> {
@@ -274,7 +283,7 @@ async function fetchJson<T>(url: string, options: FetchOptions = {}): Promise<T>
   throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
 
-function normalizeListing(args: {
+export function normalizeListing(args: {
   searchQuery: string;
   locationQuery: string | null;
   listing: OlxRawListing;
@@ -338,7 +347,7 @@ function normalizeListing(args: {
   };
 }
 
-function pickBestLocation(query: string, suggestions: OlxLocationSuggestion[]): OlxLocationSuggestion | undefined {
+export function pickBestLocation(query: string, suggestions: OlxLocationSuggestion[]): OlxLocationSuggestion | undefined {
   const lowered = query.trim().toLowerCase();
   return (
     suggestions.find((item) => item.name.toLowerCase() === lowered && ['CITY', 'STATE'].includes(item.type)) ??
@@ -445,7 +454,11 @@ function camelCase(value: string): string {
 
 function uniqueStrings(values: unknown): string[] {
   if (!Array.isArray(values)) return [];
-  return Array.from(new Set(values.filter((value): value is string => typeof value === 'string')));
+  const normalized = values
+    .filter((value): value is string => typeof value === 'string')
+    .map((value) => value.trim().replace(/\s+/g, ' '))
+    .filter(Boolean);
+  return Array.from(new Set(normalized));
 }
 
 function cleanOptionalString(value: unknown): string | undefined {
@@ -454,10 +467,22 @@ function cleanOptionalString(value: unknown): string | undefined {
   return trimmed || undefined;
 }
 
-function normalizeNumber(value: unknown): number | undefined {
+function normalizePrice(value: unknown, label: string): number | undefined {
   if (value === null || value === undefined || value === '') return undefined;
   const number = Number(value);
-  return Number.isFinite(number) ? number : undefined;
+  if (!Number.isFinite(number) || number < 0) {
+    throw new Error(`${label} must be a non-negative number.`);
+  }
+  return Math.floor(number);
+}
+
+function normalizeMaxResults(value: unknown): number {
+  if (value === null || value === undefined || value === '') return DEFAULT_MAX_RESULTS;
+  const number = Number(value);
+  if (!Number.isFinite(number)) {
+    throw new Error('Max results must be a number.');
+  }
+  return clampNumber(number, 1, MAX_RESULTS);
 }
 
 function clampNumber(value: number, min: number, max: number): number {

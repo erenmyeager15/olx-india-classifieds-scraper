@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.git/
+.apify/
+storage/
+*.log
+.env
+probe.mjs
+checkdata.mjs
+test_input.json
