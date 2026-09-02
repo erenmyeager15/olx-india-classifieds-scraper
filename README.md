@@ -33,7 +33,7 @@ For a low-cost first run, use the default sample input: `iphone` in `Mumbai`, `1
 
 | Event | Price | Notes |
 | --- | ---: | --- |
-| `apify-actor-start` | `$0.00005` per GB | Charged when the Actor starts. A 4 GB run charges 4 start events. |
+| `apify-actor-start` | `$0.00005` per GB | Charged when the Actor starts, with a minimum of one event. The default 512 MB run charges one start event. |
 | `listing-scraped` | `$0.002` per listing | Charged once for each clean OLX India listing saved to the dataset. |
 
 Example listing-event cost: 1,000 saved listings cost `$2.00`; 10,000 saved listings cost `$20.00`. Start events are tiny but still included in paid runs.
@@ -163,7 +163,7 @@ console.log(`Got ${items.length} OLX listings`);
 
 ## How It Works
 
-The actor resolves each requested OLX location through OLX India's public location autocomplete endpoint, searches the public OLX relevance API, deduplicates listings by ID, optionally fetches item detail endpoints, normalizes fields, redacts contact-like strings, and writes records to the Apify dataset.
+The actor uses built-in OLX location IDs for Mumbai, Delhi/New Delhi, and Bengaluru/Bangalore. Other requested locations are resolved through OLX India's public location autocomplete endpoint. It then searches the public OLX relevance API, deduplicates listings by ID, optionally fetches item detail endpoints, normalizes fields, redacts contact-like strings, and writes records to the Apify dataset.
 
 If a specific location cannot be resolved, the actor skips it instead of silently searching all of India under the wrong location label. If no requested location can be resolved, the run fails with a clear error.
 
