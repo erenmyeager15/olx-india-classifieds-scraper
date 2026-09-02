@@ -66,10 +66,12 @@
     "proxyConfiguration": {
       "title": "Proxy configuration",
       "type": "object",
-      "description": "Proxy settings. Apify datacenter proxy is enabled by default because direct traffic from Apify cloud can time out. Residential proxy is not required for the normal sample.",
+      "description": "Proxy settings. India Residential proxy is the reliable default for OLX search requests. You can choose another configuration, but direct or datacenter traffic may be blocked or time out.",
       "editor": "proxy",
       "default": {
-        "useApifyProxy": true
+        "useApifyProxy": true,
+        "apifyProxyGroups": ["RESIDENTIAL"],
+        "apifyProxyCountry": "IN"
       }
     }
   },

@@ -11,7 +11,11 @@ test('normalizes to a one-result low-cost sample by default', () => {
   assert.equal(input.maxResults, 1);
   assert.equal(input.includeItemDetails, false);
   assert.equal(input.includeDescription, false);
-  assert.deepEqual(input.proxyConfiguration, { useApifyProxy: true });
+  assert.deepEqual(input.proxyConfiguration, {
+    useApifyProxy: true,
+    apifyProxyGroups: ['RESIDENTIAL'],
+    apifyProxyCountry: 'IN',
+  });
 });
 
 test('cleans filters, caps max results, and keeps valid price range', () => {

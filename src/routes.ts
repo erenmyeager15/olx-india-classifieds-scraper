@@ -23,6 +23,8 @@ const MAX_FILTER_ITEMS = 10;
 const MAX_SEARCH_JOBS = 25;
 const RESULTS_PER_PAGE = 20;
 const MAX_PAGES_PER_COMBINATION = 25;
+const DEFAULT_REQUEST_RETRIES = 2;
+const REQUEST_TIMEOUT_MILLIS = 12_000;
 const BLOCKED_STATUS_CODES = new Set([401, 403, 407, 408, 409, 425, 429, 500, 502, 503, 504]);
 const SENSITIVE_PARAMETER_KEY = /(phone|mobile|contact|whatsapp|email)/i;
 const KNOWN_LOCATIONS = new Map<string, LocationTarget>([
@@ -74,7 +76,11 @@ export function normalizeInput(input: ActorInput | null | undefined): Normalized
     maxResults: normalizeMaxResults(input?.maxResults),
     includeItemDetails: input?.includeItemDetails ?? false,
     includeDescription: input?.includeDescription ?? false,
-    proxyConfiguration: input?.proxyConfiguration ?? { useApifyProxy: true },
+    proxyConfiguration: input?.proxyConfiguration ?? {
+      useApifyProxy: true,
+      apifyProxyGroups: ['RESIDENTIAL'],
+      apifyProxyCountry: 'IN',
+    },
   };
 }
 
@@ -257,7 +263,7 @@ function buildSearchUrl(keyword: string, locationId: string | undefined, categor
 }
 
 async function fetchJson<T>(url: string, options: FetchOptions = {}): Promise<T> {
-  const retries = options.retries ?? 3;
+  const retries = options.retries ?? DEFAULT_REQUEST_RETRIES;
   let lastError: unknown;
 
   for (let attempt = 1; attempt <= retries; attempt += 1) {
@@ -276,7 +282,7 @@ async function fetchJson<T>(url: string, options: FetchOptions = {}): Promise<T>
             'x-platform-type': 'web-desktop',
           },
           dispatcher,
-          signal: AbortSignal.timeout(25_000),
+          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MILLIS),
         });
 
         if (BLOCKED_STATUS_CODES.has(response.status)) {

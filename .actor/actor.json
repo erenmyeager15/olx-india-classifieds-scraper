@@ -25,7 +25,7 @@
   "categories": ["ECOMMERCE", "OTHER"],
   "categoriesVersion": "1.0.0",
   "exampleRunInput": {
-    "body": "{\"keywords\":[\"iphone\"],\"locations\":[\"Mumbai\"],\"maxResults\":1,\"includeItemDetails\":false,\"includeDescription\":false,\"proxyConfiguration\":{\"useApifyProxy\":true}}",
+    "body": "{\"keywords\":[\"iphone\"],\"locations\":[\"Mumbai\"],\"maxResults\":1,\"includeItemDetails\":false,\"includeDescription\":false,\"proxyConfiguration\":{\"useApifyProxy\":true,\"apifyProxyGroups\":[\"RESIDENTIAL\"],\"apifyProxyCountry\":\"IN\"}}",
     "contentType": "application/json"
   },
   "pricingInfo": {
