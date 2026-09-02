@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { OlxLocationSuggestion, OlxRawListing } from './types.js';
-import { normalizeInput, normalizeListing, pickBestLocation } from './routes.js';
+import { normalizeInput, normalizeListing, pickBestLocation, resolveLocationTargets } from './routes.js';
 
 test('normalizes to a one-result low-cost sample by default', () => {
   const input = normalizeInput({});
@@ -11,6 +11,7 @@ test('normalizes to a one-result low-cost sample by default', () => {
   assert.equal(input.maxResults, 1);
   assert.equal(input.includeItemDetails, false);
   assert.equal(input.includeDescription, false);
+  assert.deepEqual(input.proxyConfiguration, { useApifyProxy: true });
 });
 
 test('cleans filters, caps max results, and keeps valid price range', () => {
@@ -53,6 +54,19 @@ test('prefers exact city or state location matches', () => {
   ];
 
   assert.equal(pickBestLocation('Mumbai', suggestions)?.id, 2);
+});
+
+test('resolves common cities without calling the OLX autocomplete endpoint', async () => {
+  const proxyConfiguration = {
+    newUrl: () => {
+      throw new Error('Proxy should not be used for a known location');
+    },
+  };
+
+  assert.deepEqual(await resolveLocationTargets(['Mumbai', 'Bangalore'], proxyConfiguration), [
+    { id: '4058997', name: 'Mumbai', type: 'CITY', query: 'Mumbai' },
+    { id: '4058803', name: 'Bengaluru', type: 'CITY', query: 'Bangalore' },
+  ]);
 });
 
 test('redacts contact-like values from descriptions and parameters', () => {

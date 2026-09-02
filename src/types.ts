@@ -19,6 +19,7 @@ export interface NormalizedInput {
   maxResults: number;
   includeItemDetails: boolean;
   includeDescription: boolean;
+  proxyConfiguration: Record<string, unknown>;
 }
 
 export interface LocationTarget {

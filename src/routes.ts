@@ -25,6 +25,13 @@ const RESULTS_PER_PAGE = 20;
 const MAX_PAGES_PER_COMBINATION = 25;
 const BLOCKED_STATUS_CODES = new Set([401, 403, 407, 408, 409, 425, 429, 500, 502, 503, 504]);
 const SENSITIVE_PARAMETER_KEY = /(phone|mobile|contact|whatsapp|email)/i;
+const KNOWN_LOCATIONS = new Map<string, LocationTarget>([
+  ['mumbai', { id: '4058997', name: 'Mumbai', type: 'CITY' }],
+  ['delhi', { id: '4058659', name: 'Delhi', type: 'CITY' }],
+  ['new delhi', { id: '4058659', name: 'Delhi', type: 'CITY' }],
+  ['bengaluru', { id: '4058803', name: 'Bengaluru', type: 'CITY' }],
+  ['bangalore', { id: '4058803', name: 'Bengaluru', type: 'CITY' }],
+]);
 
 type ProxyLike = {
   newUrl: () => Promise<string | undefined> | string | undefined;
@@ -67,6 +74,7 @@ export function normalizeInput(input: ActorInput | null | undefined): Normalized
     maxResults: normalizeMaxResults(input?.maxResults),
     includeItemDetails: input?.includeItemDetails ?? false,
     includeDescription: input?.includeDescription ?? false,
+    proxyConfiguration: input?.proxyConfiguration ?? { useApifyProxy: true },
   };
 }
 
@@ -169,12 +177,18 @@ export async function pushAndCharge(record: OlxListingRecord) {
   return Actor.pushData(record, CHARGE_EVENT_NAME);
 }
 
-async function resolveLocationTargets(locations: string[], proxyConfiguration?: ProxyLike): Promise<LocationTarget[]> {
+export async function resolveLocationTargets(locations: string[], proxyConfiguration?: ProxyLike): Promise<LocationTarget[]> {
   const targets: LocationTarget[] = [];
 
   for (const location of locations) {
     if (!location || /^india$/i.test(location)) {
       targets.push({ query: location || 'India' });
+      continue;
+    }
+
+    const knownLocation = KNOWN_LOCATIONS.get(location.trim().toLowerCase());
+    if (knownLocation) {
+      targets.push({ ...knownLocation, query: location });
       continue;
     }
 
@@ -250,29 +264,33 @@ async function fetchJson<T>(url: string, options: FetchOptions = {}): Promise<T>
     try {
       const proxyUrl = options.proxyConfiguration ? await options.proxyConfiguration.newUrl() : undefined;
       const dispatcher = proxyUrl ? new ProxyAgent(proxyUrl) : undefined;
-      const response = await fetch(url, {
-        headers: {
-          accept: 'application/json, text/plain, */*',
-          'accept-language': 'en-IN,en;q=0.9',
-          origin: OLX_BASE_URL,
-          referer: OLX_BASE_URL,
-          'user-agent':
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
-          'x-platform-type': 'web-desktop',
-        },
-        dispatcher,
-        signal: AbortSignal.timeout(60_000),
-      });
+      try {
+        const response = await fetch(url, {
+          headers: {
+            accept: 'application/json, text/plain, */*',
+            'accept-language': 'en-IN,en;q=0.9',
+            origin: OLX_BASE_URL,
+            referer: OLX_BASE_URL,
+            'user-agent':
+              'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+            'x-platform-type': 'web-desktop',
+          },
+          dispatcher,
+          signal: AbortSignal.timeout(25_000),
+        });
 
-      if (BLOCKED_STATUS_CODES.has(response.status)) {
-        throw new Error(`OLX returned retryable status ${response.status}`);
-      }
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(`OLX request failed with ${response.status}: ${text.slice(0, 300)}`);
-      }
+        if (BLOCKED_STATUS_CODES.has(response.status)) {
+          throw new Error(`OLX returned retryable status ${response.status}`);
+        }
+        if (!response.ok) {
+          const text = await response.text();
+          throw new Error(`OLX request failed with ${response.status}: ${text.slice(0, 300)}`);
+        }
 
-      return (await response.json()) as T;
+        return (await response.json()) as T;
+      } finally {
+        await dispatcher?.close();
+      }
     } catch (error) {
       lastError = error;
       if (attempt === retries) break;

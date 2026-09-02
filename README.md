@@ -2,7 +2,7 @@
 
 The OLX India classifieds scraper extracts public listing data from OLX India by keyword and location. Export to JSON, CSV, Excel, or HTML, or pull via the Apify API. No OLX login or OLX API key is required.
 
-This scraper searches OLX India, reads listings from OLX's public JSON endpoints, and saves prices, seller metadata, categories, locations, images, posting dates, and listing URLs into one clean dataset. Built with Node.js 20, TypeScript, and native fetch, it uses optional Apify Proxy with retries and resilient extraction so runs stay reliable and repeatable.
+This scraper searches OLX India, reads listings from OLX's public JSON endpoints, and saves prices, seller metadata, categories, locations, images, posting dates, and listing URLs into one clean dataset. Built with Node.js 20, TypeScript, and native fetch, it uses Apify datacenter proxy by default with retries and resilient extraction so runs stay reliable and repeatable.
 
 For a low-cost first run, use the default sample input: `iphone` in `Mumbai`, `1` listing, with item details and descriptions disabled.
 
@@ -40,7 +40,7 @@ Example listing-event cost: 1,000 saved listings cost `$2.00`; 10,000 saved list
 
 Each clean listing is saved and charged atomically. The Actor stops before further OLX search or detail requests when the user's maximum run cost is reached.
 
-To control cost, start with one keyword, one location, and `maxResults: 1`. Increase volume only after the sample output looks right. Keep item details and descriptions disabled for the cheapest first run; enable them only when you need richer fields. OLX usually works without a proxy for low-volume checks, so enable Apify Proxy only if direct requests become unreliable or if you are running larger jobs.
+To control cost, start with one keyword, one location, and `maxResults: 1`. Increase volume only after the sample output looks right. Keep item details and descriptions disabled for the cheapest first run; enable them only when you need richer fields. Apify datacenter proxy is enabled by default because direct traffic from Apify cloud can time out; Residential proxy is not needed for the normal sample.
 
 ## Input
 
@@ -54,9 +54,9 @@ To control cost, start with one keyword, one location, and `maxResults: 1`. Incr
 | `maxResults` | integer | `1` | Number of unique listings to save, up to 500. |
 | `includeItemDetails` | boolean | `false` | Fetch each item detail endpoint for richer fields. Enable only when needed. |
 | `includeDescription` | boolean | `false` | Include descriptions with contact-like strings redacted. |
-| `proxyConfiguration` | object | direct request | Optional Apify Proxy settings. |
+| `proxyConfiguration` | object | Apify datacenter | Proxy settings; Residential remains optional. |
 
-The actor runs at 4 GB memory with a 60-minute timeout. It allows up to 25 keyword/location combinations per run so accidental broad grids do not create expensive or confusing jobs.
+The Actor defaults to 512 MB memory with a 60-minute timeout. It allows up to 25 keyword/location combinations per run so accidental broad grids do not create expensive or confusing jobs.
 
 ## How to Scrape OLX India Classifieds
 
@@ -75,7 +75,7 @@ The actor runs at 4 GB memory with a 60-minute timeout. It allows up to 25 keywo
   "maxResults": 1,
   "includeItemDetails": false,
   "includeDescription": false,
-  "proxyConfiguration": { "useApifyProxy": false }
+  "proxyConfiguration": { "useApifyProxy": true }
 }
 ```
 
@@ -172,7 +172,7 @@ If a specific location cannot be resolved, the actor skips it instead of silentl
 - Phone numbers and email addresses are intentionally not exposed. `hasPhoneParam` tells you whether OLX indicates contact data exists.
 - OLX category names are returned when the search metadata exposes them. Otherwise `category` can be null while `categoryId` remains available.
 - Price filters are applied after records are fetched from OLX, so very narrow ranges may require a broader `maxResults` setting.
-- OLX may change or restrict its public endpoints. Use Apify Proxy for larger runs if direct requests become less reliable.
+- OLX may change or restrict its public endpoints. Datacenter proxy is the default; select Residential only if repeated blocking makes it necessary.
 - This actor is not affiliated with OLX.
 
 ## Responsible Use

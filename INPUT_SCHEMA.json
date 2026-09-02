@@ -66,10 +66,10 @@
     "proxyConfiguration": {
       "title": "Proxy configuration",
       "type": "object",
-      "description": "Optional proxy settings. OLX usually works without a proxy for low-volume tests, while Apify Proxy can improve reliability for larger runs.",
+      "description": "Proxy settings. Apify datacenter proxy is enabled by default because direct traffic from Apify cloud can time out. Residential proxy is not required for the normal sample.",
       "editor": "proxy",
       "default": {
-        "useApifyProxy": false
+        "useApifyProxy": true
       }
     }
   },

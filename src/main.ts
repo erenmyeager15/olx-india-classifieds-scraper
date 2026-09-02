@@ -8,9 +8,7 @@ await Actor.init();
 try {
   const rawInput = (await Actor.getInput<ActorInput>()) ?? {};
   const input = normalizeInput(rawInput);
-  const proxyConfiguration = rawInput.proxyConfiguration
-    ? await Actor.createProxyConfiguration(rawInput.proxyConfiguration)
-    : undefined;
+  const proxyConfiguration = await Actor.createProxyConfiguration(input.proxyConfiguration);
 
   log.info('Starting OLX India Classifieds Scraper', {
     keywords: input.keywords,
@@ -46,8 +44,9 @@ try {
     log.info(`Finished. Saved ${saved} OLX listing records.`);
   }
 } catch (error) {
-  log.exception(error instanceof Error ? error : new Error(String(error)), 'OLX scraper failed');
-  throw error;
-} finally {
-  await Actor.exit();
+  const failure = error instanceof Error ? error : new Error(String(error));
+  log.exception(failure, 'OLX scraper failed');
+  await Actor.fail(failure.message);
 }
+
+await Actor.exit();
