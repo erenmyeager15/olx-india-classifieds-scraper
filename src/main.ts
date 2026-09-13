@@ -34,12 +34,13 @@ try {
     }
   }
 
-  if (saved === 0 && !spendingLimitReached) {
-    throw new Error('No OLX listings matched the input. Try a broader keyword, location, or price range.');
-  }
-
   if (saved === 0) {
-    log.warning('Stopped before saving OLX listings because the user spending limit was reached.');
+    if (spendingLimitReached) {
+      log.warning('Stopped before saving OLX listings because the user spending limit was reached.');
+    } else {
+      await Actor.setStatusMessage('Finished successfully. No OLX listings matched the supplied filters.');
+      log.info('Finished successfully with no matching OLX listings.');
+    }
   } else {
     log.info(`Finished. Saved ${saved} OLX listing records.`);
   }

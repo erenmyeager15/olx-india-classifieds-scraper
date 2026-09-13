@@ -23,8 +23,8 @@ const MAX_FILTER_ITEMS = 10;
 const MAX_SEARCH_JOBS = 25;
 const RESULTS_PER_PAGE = 20;
 const MAX_PAGES_PER_COMBINATION = 25;
-const DEFAULT_REQUEST_RETRIES = 2;
-const REQUEST_TIMEOUT_MILLIS = 12_000;
+const DEFAULT_REQUEST_RETRIES = 3;
+const REQUEST_TIMEOUT_MILLIS = 20_000;
 const BLOCKED_STATUS_CODES = new Set([401, 403, 407, 408, 409, 425, 429, 500, 502, 503, 504]);
 const SENSITIVE_PARAMETER_KEY = /(phone|mobile|contact|whatsapp|email)/i;
 const KNOWN_LOCATIONS = new Map<string, LocationTarget>([
@@ -100,6 +100,8 @@ export async function* scrapeOlxListings(
   }
 
   let yielded = 0;
+  let successfulSearchRequests = 0;
+  let failedSearchRequests = 0;
   while (yielded < input.maxResults && jobs.some((job) => !job.done)) {
     for (const job of jobs) {
       if (yielded >= input.maxResults) break;
@@ -115,7 +117,9 @@ export async function* scrapeOlxListings(
       let response: OlxSearchResponse;
       try {
         response = await fetchJson<OlxSearchResponse>(searchUrl, { proxyConfiguration });
+        successfulSearchRequests += 1;
       } catch (error) {
+        failedSearchRequests += 1;
         job.done = true;
         log.warning(`Skipping OLX search job after repeated request failures`, {
           keyword: job.keyword,
@@ -174,6 +178,12 @@ export async function* scrapeOlxListings(
         await sleep(randomInt(700, 1800));
       }
     }
+  }
+
+  if (yielded === 0 && failedSearchRequests > 0 && successfulSearchRequests === 0) {
+    throw new Error(
+      'OLX did not respond successfully after retries. Please retry the run; residential proxy sessions are rotated automatically.',
+    );
   }
 }
 
@@ -300,7 +310,7 @@ async function fetchJson<T>(url: string, options: FetchOptions = {}): Promise<T>
     } catch (error) {
       lastError = error;
       if (attempt === retries) break;
-      await sleep(800 * attempt + randomInt(300, 1200));
+      await sleep(1_000 * 2 ** (attempt - 1) + randomInt(500, 1_500));
     }
   }
 
