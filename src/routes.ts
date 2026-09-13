@@ -23,6 +23,7 @@ const MAX_FILTER_ITEMS = 10;
 const MAX_SEARCH_JOBS = 25;
 const RESULTS_PER_PAGE = 20;
 const MAX_PAGES_PER_COMBINATION = 25;
+const MAX_CONSECUTIVE_UNPRODUCTIVE_PAGES = 5;
 const DEFAULT_REQUEST_RETRIES = 3;
 const REQUEST_TIMEOUT_MILLIS = 20_000;
 const BLOCKED_STATUS_CODES = new Set([401, 403, 407, 408, 409, 425, 429, 500, 502, 503, 504]);
@@ -44,6 +45,7 @@ interface SearchJob {
   location: LocationTarget;
   page: number;
   done: boolean;
+  unproductivePages: number;
 }
 
 interface FetchOptions {
@@ -95,7 +97,7 @@ export async function* scrapeOlxListings(
 
   for (const location of resolvedLocations) {
     for (const keyword of input.keywords) {
-      jobs.push({ keyword, location, page: 0, done: false });
+      jobs.push({ keyword, location, page: 0, done: false, unproductivePages: 0 });
     }
   }
 
@@ -145,6 +147,7 @@ export async function* scrapeOlxListings(
 
       job.page += 1;
 
+      let acceptedOnPage = 0;
       for (const listing of listings) {
         if (yielded >= input.maxResults) break;
 
@@ -171,7 +174,18 @@ export async function* scrapeOlxListings(
 
         if (!record.title || !record.listingId) continue;
         yielded += 1;
+        acceptedOnPage += 1;
         yield record;
+      }
+
+      job.unproductivePages = updateUnproductivePageCount(job.unproductivePages, acceptedOnPage);
+      if (shouldStopAfterUnproductivePages(job.unproductivePages)) {
+        job.done = true;
+        log.info('Stopping an OLX search job after consecutive pages produced no matching records', {
+          keyword: job.keyword,
+          location: job.location.name ?? job.location.query ?? 'India',
+          pagesChecked: job.page,
+        });
       }
 
       if (yielded < input.maxResults) {
@@ -185,6 +199,14 @@ export async function* scrapeOlxListings(
       'OLX did not respond successfully after retries. Please retry the run; residential proxy sessions are rotated automatically.',
     );
   }
+}
+
+export function updateUnproductivePageCount(previousCount: number, acceptedOnPage: number): number {
+  return acceptedOnPage > 0 ? 0 : previousCount + 1;
+}
+
+export function shouldStopAfterUnproductivePages(count: number): boolean {
+  return count >= MAX_CONSECUTIVE_UNPRODUCTIVE_PAGES;
 }
 
 export async function pushAndCharge(record: OlxListingRecord) {

@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { OlxLocationSuggestion, OlxRawListing } from './types.js';
-import { normalizeInput, normalizeListing, pickBestLocation, resolveLocationTargets } from './routes.js';
+import {
+  normalizeInput,
+  normalizeListing,
+  pickBestLocation,
+  resolveLocationTargets,
+  shouldStopAfterUnproductivePages,
+  updateUnproductivePageCount,
+} from './routes.js';
 
 test('normalizes to a one-result low-cost sample by default', () => {
   const input = normalizeInput({});
@@ -71,6 +78,18 @@ test('resolves common cities without calling the OLX autocomplete endpoint', asy
     { id: '4058997', name: 'Mumbai', type: 'CITY', query: 'Mumbai' },
     { id: '4058803', name: 'Bengaluru', type: 'CITY', query: 'Bangalore' },
   ]);
+});
+
+test('bounds searches whose pages repeatedly produce no accepted listings', () => {
+  let count = 0;
+  for (let page = 0; page < 4; page += 1) {
+    count = updateUnproductivePageCount(count, 0);
+    assert.equal(shouldStopAfterUnproductivePages(count), false);
+  }
+
+  count = updateUnproductivePageCount(count, 0);
+  assert.equal(shouldStopAfterUnproductivePages(count), true);
+  assert.equal(updateUnproductivePageCount(count, 1), 0);
 });
 
 test('redacts contact-like values from descriptions and parameters', () => {
