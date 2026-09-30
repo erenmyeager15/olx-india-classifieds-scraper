@@ -77,6 +77,17 @@ test('nonempty listings with zero reported pages are not counted as successful c
   assert.equal(result.summary.successfulSearchPages, 0);
 });
 
+test('contradictory final-page continuation cannot certify complete coverage', async () => {
+  const invalid = await scan({}, () => ({ data: [listing()], metadata: { total_pages: 1, next_page_url: '/api/search?page=1' } }));
+  assert.equal(invalid.calls, 3);
+  assert.equal(invalid.summary.outcome, 'failed');
+  assert.equal(invalid.summary.searchCoverageComplete, false);
+  const recovered = await scan({}, (_url, count) => ({ data: [listing()],
+    metadata: { total_pages: 1, ...(count === 1 ? { next_page_url: '/api/search?page=1' } : {}) } }));
+  assert.equal(recovered.calls, 2);
+  assert.equal(recovered.summary.outcome, 'complete');
+});
+
 test('one empty search plus another failed search is partial, not no matches', async () => {
   const result = await scan({ keywords: ['good', 'bad'] }, (url) => url.searchParams.get('query') === 'good' ? { data: [] } : {});
   assert.equal(result.summary.outcome, 'partial');

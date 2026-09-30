@@ -143,7 +143,8 @@ export async function* scrapeOlxListings(
             const pages = validated.metadata?.total_pages;
             const nextPage = validated.metadata?.next_page_url?.trim();
             if ((validated.data.length > 0 && pages === 0)
-              || (validated.data.length === 0 && ((typeof pages === 'number' && pages > job.page + 1) || nextPage))) {
+              || (validated.data.length === 0 && ((typeof pages === 'number' && pages > job.page + 1) || nextPage))
+              || (nextPage && typeof pages === 'number' && pages <= job.page + 1)) {
               throw new OlxResponseValidationError('invalid_metadata');
             }
             return validated;
