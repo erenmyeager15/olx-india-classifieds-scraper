@@ -1,10 +1,11 @@
 import { Actor, log } from 'apify';
 import { fetch, ProxyAgent } from 'undici';
+import { createScanProgress, type ScanProgress } from './summary.js';
+import { validateSearchResponse, validateLocationResponse, validateItemResponse, OlxResponseValidationError } from './validation.js';
 import type {
   ActorInput,
   LocationTarget,
   NormalizedInput,
-  OlxItemResponse,
   OlxImage,
   OlxListingRecord,
   OlxLocationResponse,
@@ -21,7 +22,6 @@ const MAX_RESULTS = 500;
 const DEFAULT_MAX_RESULTS = 1;
 const MAX_FILTER_ITEMS = 10;
 const MAX_SEARCH_JOBS = 25;
-const RESULTS_PER_PAGE = 20;
 const MAX_PAGES_PER_COMBINATION = 25;
 const MAX_CONSECUTIVE_UNPRODUCTIVE_PAGES = 5;
 const DEFAULT_REQUEST_RETRIES = 3;
@@ -46,16 +46,28 @@ interface SearchJob {
   page: number;
   done: boolean;
   unproductivePages: number;
+  started: boolean;
 }
 
-interface FetchOptions {
+export interface FetchOptions<T = unknown> {
   proxyConfiguration?: ProxyLike;
   retries?: number;
+  validate?: (value: unknown) => T;
+  request?: typeof fetch;
+  wait?: (ms: number) => Promise<void>;
+}
+
+export interface ScrapeDependencies {
+  request?: typeof fetch;
+  wait?: (ms: number) => Promise<void>;
 }
 
 export function normalizeInput(input: ActorInput | null | undefined): NormalizedInput {
-  const keywords = uniqueStrings(input?.keywords).slice(0, MAX_FILTER_ITEMS);
-  const locations = uniqueStrings(input?.locations).slice(0, MAX_FILTER_ITEMS);
+  const keywords = uniqueStrings(input?.keywords);
+  const locations = uniqueStrings(input?.locations);
+  if (keywords.length > MAX_FILTER_ITEMS || locations.length > MAX_FILTER_ITEMS) {
+    throw new Error(`At most ${MAX_FILTER_ITEMS} distinct keywords and locations are supported; filters were not silently truncated.`);
+  }
   const normalizedKeywords = keywords.length ? keywords : ['iphone'];
   const normalizedLocations = locations.length ? locations : ['Mumbai'];
   const minPrice = normalizePrice(input?.minPrice, 'Minimum price');
@@ -89,25 +101,31 @@ export function normalizeInput(input: ActorInput | null | undefined): Normalized
 export async function* scrapeOlxListings(
   input: NormalizedInput,
   proxyConfiguration?: ProxyLike,
+  progress: ScanProgress = createScanProgress(input),
+  dependencies: ScrapeDependencies = {},
 ): AsyncGenerator<OlxListingRecord> {
   const seenIds = new Set<string>();
   const categoryNames = new Map<string, string>();
-  const resolvedLocations = await resolveLocationTargets(input.locations, proxyConfiguration);
+  const resolvedLocations = await resolveLocationTargets(input.locations, proxyConfiguration, dependencies, progress);
+  progress.resolvedSearchJobs = resolvedLocations.length * input.keywords.length;
   const jobs: SearchJob[] = [];
 
   for (const location of resolvedLocations) {
     for (const keyword of input.keywords) {
-      jobs.push({ keyword, location, page: 0, done: false, unproductivePages: 0 });
+      jobs.push({ keyword, location, page: 0, done: false, unproductivePages: 0, started: false });
     }
   }
 
   let yielded = 0;
-  let successfulSearchRequests = 0;
-  let failedSearchRequests = 0;
+  const wait = dependencies.wait ?? sleep;
   while (yielded < input.maxResults && jobs.some((job) => !job.done)) {
     for (const job of jobs) {
       if (yielded >= input.maxResults) break;
       if (job.done) continue;
+      if (!job.started) {
+        job.started = true;
+        progress.startedSearchJobs += 1;
+      }
 
       const searchUrl = buildSearchUrl(job.keyword, job.location.id, input.categoryId, job.page);
       log.info(`Fetching OLX search page`, {
@@ -118,10 +136,23 @@ export async function* scrapeOlxListings(
 
       let response: OlxSearchResponse;
       try {
-        response = await fetchJson<OlxSearchResponse>(searchUrl, { proxyConfiguration });
-        successfulSearchRequests += 1;
+        response = await fetchJson(searchUrl, {
+          proxyConfiguration, ...dependencies,
+          validate: (payload) => {
+            const validated = validateSearchResponse(payload);
+            const pages = validated.metadata?.total_pages;
+            const nextPage = validated.metadata?.next_page_url?.trim();
+            if ((validated.data.length > 0 && pages === 0)
+              || (validated.data.length === 0 && ((typeof pages === 'number' && pages > job.page + 1) || nextPage))) {
+              throw new OlxResponseValidationError('invalid_metadata');
+            }
+            return validated;
+          },
+        });
+        progress.successfulSearchPages += 1;
       } catch (error) {
-        failedSearchRequests += 1;
+        progress.failedSearchPages += 1;
+        progress.failedSearchJobs += 1;
         job.done = true;
         log.warning(`Skipping OLX search job after repeated request failures`, {
           keyword: job.keyword,
@@ -135,13 +166,14 @@ export async function* scrapeOlxListings(
         categoryNames.set(id, name);
       }
 
-      const listings = response.data ?? [];
-      if (listings.length === 0 || job.page >= MAX_PAGES_PER_COMBINATION - 1) {
-        job.done = true;
-      }
-
+      // The validator requires a real data array; an error envelope is never an empty page.
+      const listings = response.data!;
       const totalPages = response.metadata?.total_pages;
-      if (typeof totalPages === 'number' && job.page + 1 >= totalPages) {
+      const sourceExhausted = listings.length === 0
+        || (typeof totalPages === 'number' && job.page + 1 >= totalPages);
+      if (sourceExhausted) {
+        job.done = true;
+      } else if (job.page >= MAX_PAGES_PER_COMBINATION - 1) {
         job.done = true;
       }
 
@@ -159,8 +191,10 @@ export async function* scrapeOlxListings(
 
         let detail: OlxRawListing | undefined;
         if (input.includeItemDetails) {
-          await sleep(randomInt(150, 500));
-          detail = await fetchItemDetails(listingId, proxyConfiguration);
+          await wait(randomInt(150, 500));
+          progress.detailRequests += 1;
+          detail = await fetchItemDetails(listingId, proxyConfiguration, dependencies);
+          if (!detail) progress.failedDetailRequests += 1;
         }
 
         const record = normalizeListing({
@@ -174,13 +208,20 @@ export async function* scrapeOlxListings(
 
         if (!record.title || !record.listingId) continue;
         yielded += 1;
+        progress.yieldedListings = yielded;
+        if (yielded >= input.maxResults) progress.resultLimitReached = true;
         acceptedOnPage += 1;
         yield record;
       }
 
       job.unproductivePages = updateUnproductivePageCount(job.unproductivePages, acceptedOnPage);
-      if (shouldStopAfterUnproductivePages(job.unproductivePages)) {
+      if (sourceExhausted && yielded < input.maxResults) {
+        progress.exhaustedSearchJobs += 1;
+      } else if (!sourceExhausted && job.page >= MAX_PAGES_PER_COMBINATION) {
+        progress.pageLimitedJobs += 1;
+      } else if (!job.done && shouldStopAfterUnproductivePages(job.unproductivePages)) {
         job.done = true;
+        progress.noMatchLimitedJobs += 1;
         log.info('Stopping an OLX search job after consecutive pages produced no matching records', {
           keyword: job.keyword,
           location: job.location.name ?? job.location.query ?? 'India',
@@ -188,13 +229,13 @@ export async function* scrapeOlxListings(
         });
       }
 
-      if (yielded < input.maxResults) {
-        await sleep(randomInt(700, 1800));
+      if (yielded < input.maxResults && jobs.some((pending) => !pending.done)) {
+        await wait(randomInt(700, 1800));
       }
     }
   }
 
-  if (yielded === 0 && failedSearchRequests > 0 && successfulSearchRequests === 0) {
+  if (yielded === 0 && progress.failedSearchPages > 0 && progress.successfulSearchPages === 0) {
     throw new Error(
       'OLX did not respond successfully after retries. Please retry the run; residential proxy sessions are rotated automatically.',
     );
@@ -215,26 +256,32 @@ export async function pushAndCharge(record: OlxListingRecord) {
   return Actor.pushData(record, CHARGE_EVENT_NAME);
 }
 
-export async function resolveLocationTargets(locations: string[], proxyConfiguration?: ProxyLike): Promise<LocationTarget[]> {
+export async function resolveLocationTargets(
+  locations: string[], proxyConfiguration?: ProxyLike,
+  dependencies: ScrapeDependencies = {}, progress?: ScanProgress,
+): Promise<LocationTarget[]> {
   const targets: LocationTarget[] = [];
 
   for (const location of locations) {
     if (!location || /^india$/i.test(location)) {
       targets.push({ query: location || 'India' });
+      if (progress) progress.resolvedLocations += 1;
       continue;
     }
 
     const knownLocation = KNOWN_LOCATIONS.get(location.trim().toLowerCase());
     if (knownLocation) {
       targets.push({ ...knownLocation, query: location });
+      if (progress) progress.resolvedLocations += 1;
       continue;
     }
 
     const url = `${OLX_BASE_URL}/api/locations/autocomplete?input=${encodeURIComponent(location)}`;
     let response: OlxLocationResponse;
     try {
-      response = await fetchJson<OlxLocationResponse>(url, { proxyConfiguration });
+      response = await fetchJson(url, { proxyConfiguration, ...dependencies, validate: validateLocationResponse });
     } catch (error) {
+      if (progress) progress.skippedLocations += 1;
       log.warning(`Could not resolve OLX location after retries; skipping location`, {
         location,
         error: error instanceof Error ? error.message : String(error),
@@ -244,8 +291,13 @@ export async function resolveLocationTargets(locations: string[], proxyConfigura
     const suggestion = pickBestLocation(location, response.data?.suggestions ?? []);
 
     if (!suggestion) {
+      if (progress) progress.skippedLocations += 1;
       log.warning(`Could not resolve location; skipping location`, { location });
       continue;
+    }
+
+    if (progress && suggestion.name.trim().toLowerCase() !== location.trim().toLowerCase()) {
+      progress.approximateLocations += 1;
     }
 
     targets.push({
@@ -254,6 +306,7 @@ export async function resolveLocationTargets(locations: string[], proxyConfigura
       name: suggestion.name,
       type: suggestion.type,
     });
+    if (progress) progress.resolvedLocations += 1;
   }
 
   if (!targets.length) {
@@ -263,10 +316,21 @@ export async function resolveLocationTargets(locations: string[], proxyConfigura
   return targets;
 }
 
-async function fetchItemDetails(id: string, proxyConfiguration?: ProxyLike): Promise<OlxRawListing | undefined> {
+async function fetchItemDetails(
+  id: string, proxyConfiguration?: ProxyLike, dependencies: ScrapeDependencies = {},
+): Promise<OlxRawListing | undefined> {
   try {
     const url = `${OLX_BASE_URL}/api/items/${encodeURIComponent(id)}`;
-    const response = await fetchJson<OlxItemResponse>(url, { proxyConfiguration, retries: 2 });
+    const response = await fetchJson(url, {
+      proxyConfiguration, ...dependencies, retries: 2,
+      validate: (payload) => {
+        const validated = validateItemResponse(payload);
+        if ((validated.data.id ?? validated.data.ad_id) !== id) {
+          throw new Error('OLX item response identity did not match the requested listing.');
+        }
+        return validated;
+      },
+    });
     return response.data;
   } catch (error) {
     log.debug(`Skipping item detail after failed request`, {
@@ -294,7 +358,7 @@ function buildSearchUrl(keyword: string, locationId: string | undefined, categor
   return `${OLX_BASE_URL}/api/relevance/v4/search?${params.toString()}`;
 }
 
-async function fetchJson<T>(url: string, options: FetchOptions = {}): Promise<T> {
+export async function fetchJson<T>(url: string, options: FetchOptions<T> = {}): Promise<T> {
   const retries = options.retries ?? DEFAULT_REQUEST_RETRIES;
   let lastError: unknown;
 
@@ -303,7 +367,7 @@ async function fetchJson<T>(url: string, options: FetchOptions = {}): Promise<T>
       const proxyUrl = options.proxyConfiguration ? await options.proxyConfiguration.newUrl() : undefined;
       const dispatcher = proxyUrl ? new ProxyAgent(proxyUrl) : undefined;
       try {
-        const response = await fetch(url, {
+        const response = await (options.request ?? fetch)(url, {
           headers: {
             accept: 'application/json, text/plain, */*',
             'accept-language': 'en-IN,en;q=0.9',
@@ -318,21 +382,23 @@ async function fetchJson<T>(url: string, options: FetchOptions = {}): Promise<T>
         });
 
         if (BLOCKED_STATUS_CODES.has(response.status)) {
+          await response.body?.cancel();
           throw new Error(`OLX returned retryable status ${response.status}`);
         }
         if (!response.ok) {
-          const text = await response.text();
-          throw new Error(`OLX request failed with ${response.status}: ${text.slice(0, 300)}`);
+          await response.body?.cancel();
+          throw new Error(`OLX request failed with HTTP ${response.status}.`);
         }
 
-        return (await response.json()) as T;
+        const payload: unknown = await response.json();
+        return options.validate ? options.validate(payload) : payload as T;
       } finally {
         await dispatcher?.close();
       }
     } catch (error) {
       lastError = error;
       if (attempt === retries) break;
-      await sleep(1_000 * 2 ** (attempt - 1) + randomInt(500, 1_500));
+      await (options.wait ?? sleep)(1_000 * 2 ** (attempt - 1) + randomInt(500, 1_500));
     }
   }
 
@@ -406,7 +472,7 @@ export function normalizeListing(args: {
 export function pickBestLocation(query: string, suggestions: OlxLocationSuggestion[]): OlxLocationSuggestion | undefined {
   const lowered = query.trim().toLowerCase();
   return (
-    suggestions.find((item) => item.name.toLowerCase() === lowered && ['CITY', 'STATE'].includes(item.type)) ??
+    suggestions.find((item) => item.name.trim().toLowerCase() === lowered) ??
     suggestions.find((item) => ['CITY', 'STATE'].includes(item.type)) ??
     suggestions[0]
   );

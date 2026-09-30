@@ -4,6 +4,12 @@
   "description": "Structured OLX India classified listing records with search and location queries, listing IDs, titles, categories, prices, seller flags, descriptions, statuses, locations, coordinates, dates, image and video counts, favorite counts, listing URLs, parameters, and scraped timestamps.",
   "type": "object",
   "properties": {
+    "runSummary": {
+      "type": "string",
+      "title": "Run coverage summary",
+      "description": "Complete, empty, partial, limited or failed outcome, saved counts, search/detail coverage and configured-stop reasons. A successful platform status alone does not establish full search coverage.",
+      "template": "{{links.apiDefaultKeyValueStoreUrl}}/records/OLX-RUN-SUMMARY"
+    },
     "results": {
       "type": "string",
       "title": "OLX India listing records",

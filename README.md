@@ -6,6 +6,20 @@ This scraper searches OLX India, reads listings from OLX's public JSON endpoints
 
 For a low-cost first run, use the default sample input: `iphone` in `Mumbai`, `1` listing, with item details and descriptions disabled.
 
+## Check coverage, not just run status
+
+Every normally finished run saves `OLX-RUN-SUMMARY` in its default key-value store, linked from the Output tab. It distinguishes:
+
+- `complete`: all normalized requested searches exhausted the source pagination and saved listings.
+- `empty`: the same checked search coverage, with no matching saved listings.
+- `partial`: unresolved/approximate locations, failed search pages or unavailable requested details. Saved listings remain usable, but coverage is incomplete.
+- `limited`: the result/spending limit, page cap or consecutive-no-match cap stopped the search before complete coverage was established.
+- `failed`: the run could not finish, including when no requested source search could be validated. Rows saved before a failure remain in the Dataset.
+
+The summary contains counts, coverage warnings and limitation reasons, not listing descriptions or private response bodies. Search failures are counted only after bounded retries are exhausted; malformed JSON payload shapes are retried rather than treated as empty pages. Detail requests can fall back to the search listing, with the gap reported explicitly. A genuine empty search has no listing-result event, but start/usage charges can still apply.
+
+`complete` is limited to the normalized requested search scope and the source's reported pagination; it does not claim every OLX listing was found. A one-result default run will usually be `limited`, which is an expected useful sample, not a source failure. Abrupt platform timeouts/aborts or storage failures may prevent the final summary from being saved. Exact neighborhood suggestions are preferred; approximate fallback locations are flagged as partial coverage. Inputs above the documented ten-keyword/location limits are rejected, not silently truncated.
+
 ## What It Extracts
 
 - Listing ID and title

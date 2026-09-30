@@ -9,7 +9,7 @@
     "start": "node dist/main.js",
     "lint": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
-    "test": "npm run build && node --test dist/billing.test.js dist/routes.test.js"
+    "test": "npm run build && node --test dist/*.test.js"
   },
   "engines": {
     "node": ">=20.0.0"
