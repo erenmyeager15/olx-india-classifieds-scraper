@@ -36,8 +36,12 @@ const KNOWN_LOCATIONS = new Map<string, LocationTarget>([
   ['bangalore', { id: '4058803', name: 'Bengaluru', type: 'CITY' }],
 ]);
 
-type ProxyLike = {
+export type ProxyLike = {
   newUrl: () => Promise<string | undefined> | string | undefined;
+  /** True while a more reliable proxy tier is still available after the current one fails. */
+  canEscalate?: () => boolean;
+  /** Moves to the next proxy tier. Resolves false when none is left. */
+  escalate?: () => Promise<boolean>;
 };
 
 interface SearchJob {
@@ -127,7 +131,10 @@ export async function* scrapeOlxListings(
         progress.startedSearchJobs += 1;
       }
 
-      const searchUrl = buildSearchUrl(job.keyword, job.location.id, input.categoryId, job.page);
+      const searchUrl = buildSearchUrl(job.keyword, job.location.id, input.categoryId, job.page, {
+        min: input.minPrice,
+        max: input.maxPrice,
+      });
       log.info(`Fetching OLX search page`, {
         keyword: job.keyword,
         location: job.location.name ?? job.location.query ?? 'India',
@@ -142,9 +149,12 @@ export async function* scrapeOlxListings(
             const validated = validateSearchResponse(payload);
             const pages = validated.metadata?.total_pages;
             const nextPage = validated.metadata?.next_page_url?.trim();
+            // OLX reports total_pages as a lazy estimate (e.g. 4, then 47 once paged deeper, or 1
+            // for a filtered search that still has a second page) and sends next_page_url on every
+            // page except the real last one. Only contradictions that cannot occur on a healthy
+            // response are rejected; next_page_url beyond the reported page count is normal.
             if ((validated.data.length > 0 && pages === 0)
-              || (validated.data.length === 0 && ((typeof pages === 'number' && pages > job.page + 1) || nextPage))
-              || (nextPage && typeof pages === 'number' && pages <= job.page + 1)) {
+              || (validated.data.length === 0 && ((typeof pages === 'number' && pages > job.page + 1) || nextPage))) {
               throw new OlxResponseValidationError('invalid_metadata');
             }
             return validated;
@@ -170,8 +180,10 @@ export async function* scrapeOlxListings(
       // The validator requires a real data array; an error envelope is never an empty page.
       const listings = response.data!;
       const totalPages = response.metadata?.total_pages;
+      const hasNextPage = Boolean(response.metadata?.next_page_url?.trim());
+      // A next_page_url means OLX has more rows regardless of the estimated total_pages.
       const sourceExhausted = listings.length === 0
-        || (typeof totalPages === 'number' && job.page + 1 >= totalPages);
+        || (!hasNextPage && typeof totalPages === 'number' && job.page + 1 >= totalPages);
       if (sourceExhausted) {
         job.done = true;
       } else if (job.page >= MAX_PAGES_PER_COMBINATION - 1) {
@@ -342,7 +354,10 @@ async function fetchItemDetails(
   }
 }
 
-function buildSearchUrl(keyword: string, locationId: string | undefined, categoryId: string | undefined, page: number): string {
+export function buildSearchUrl(
+  keyword: string, locationId: string | undefined, categoryId: string | undefined, page: number,
+  price: { min?: number; max?: number } = {},
+): string {
   const params = new URLSearchParams({
     facet_limit: '100',
     lang: 'en-IN',
@@ -355,6 +370,10 @@ function buildSearchUrl(keyword: string, locationId: string | undefined, categor
 
   if (locationId) params.set('location', locationId);
   if (categoryId) params.set('category', categoryId);
+  // OLX filters by price server-side, so a narrow price range no longer means paging through
+  // hundreds of unrelated rows. The client-side check below stays as a safety net.
+  if (price.min !== undefined) params.set('price_min', String(price.min));
+  if (price.max !== undefined) params.set('price_max', String(price.max));
 
   return `${OLX_BASE_URL}/api/relevance/v4/search?${params.toString()}`;
 }
@@ -398,12 +417,26 @@ export async function fetchJson<T>(url: string, options: FetchOptions<T> = {}): 
       }
     } catch (error) {
       lastError = error;
+      // Move to a more reliable proxy tier right away, even on the last attempt, so the next
+      // request starts on it instead of repeating the same timeout.
+      const escalated = shouldEscalateProxy(error) && Boolean(await options.proxyConfiguration?.escalate?.());
       if (attempt === retries) break;
-      await (options.wait ?? sleep)(1_000 * 2 ** (attempt - 1) + randomInt(500, 1_500));
+      await (options.wait ?? sleep)(escalated ? randomInt(200, 600) : 1_000 * 2 ** (attempt - 1) + randomInt(500, 1_500));
     }
   }
 
   throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
+/**
+ * Timeouts, connection failures and blocked statuses can be fixed by a different proxy exit.
+ * Malformed responses and ordinary client errors would fail identically on any proxy.
+ */
+export function shouldEscalateProxy(error: unknown): boolean {
+  if (error instanceof OlxResponseValidationError) return false;
+  if (!(error instanceof Error)) return false;
+  if (/^OLX request failed with HTTP \d+\.$/.test(error.message)) return false;
+  return true;
 }
 
 export function normalizeListing(args: {

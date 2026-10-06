@@ -3,6 +3,7 @@ import { wasPushedRecordSaved } from './billing.js';
 import type { ActorInput } from './types.js';
 import { normalizeInput, pushAndCharge, scrapeOlxListings } from './routes.js';
 import { buildRunSummary, createScanProgress, runStatusMessage } from './summary.js';
+import { createProxyTiers, needsResidentialFallback, residentialFallbackConfig, type ProxyTier } from './proxy.js';
 
 await Actor.init();
 
@@ -14,7 +15,7 @@ try {
   const rawInput = (await Actor.getInput<ActorInput>()) ?? {};
   const input = normalizeInput(rawInput);
   progress = createScanProgress(input);
-  const proxyConfiguration = await Actor.createProxyConfiguration(input.proxyConfiguration);
+  const proxyConfiguration = await buildProxyTiers(input.proxyConfiguration);
 
   log.info('Starting OLX India Classifieds Scraper', {
     keywords: input.keywords,
@@ -53,3 +54,30 @@ try {
 }
 if (failure) await Actor.fail(failure.message);
 await Actor.exit();
+
+async function buildProxyTiers(requested: Record<string, unknown>) {
+  const tiers: ProxyTier[] = [];
+  const fallback = needsResidentialFallback(requested);
+  try {
+    tiers.push({ name: 'requested proxy', proxy: await Actor.createProxyConfiguration(requested) });
+  } catch (error) {
+    // An inaccessible proxy group must not fail the run when Residential India can serve it.
+    if (!fallback) throw error;
+    log.warning('The requested proxy configuration could not be created; using Residential India instead.', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  if (fallback) {
+    try {
+      const residential = await Actor.createProxyConfiguration(residentialFallbackConfig(requested));
+      if (residential) tiers.push({ name: 'Residential proxy', proxy: residential });
+    } catch (error) {
+      log.warning('Residential proxy fallback is unavailable on this account.', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  if (tiers.length === 0) throw new Error('No usable proxy configuration. Enable Apify Residential proxy or choose another proxy setting.');
+  return createProxyTiers(tiers, (from, to) =>
+    log.warning(`OLX request failed on the ${from}; switching to the ${to} for the rest of this run.`));
+}

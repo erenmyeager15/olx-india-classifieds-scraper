@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Response, type fetch } from 'undici';
-import { fetchJson, normalizeInput, pickBestLocation, scrapeOlxListings } from './routes.js';
+import { fetchJson, normalizeInput, pickBestLocation, scrapeOlxListings, shouldEscalateProxy } from './routes.js';
+import { createProxyTiers, needsResidentialFallback, residentialFallbackConfig } from './proxy.js';
 import { buildRunSummary, createScanProgress, runStatusMessage } from './summary.js';
-import { validateSearchResponse } from './validation.js';
+import { OlxResponseValidationError, validateSearchResponse } from './validation.js';
 import type { ActorInput, OlxListingRecord } from './types.js';
 
 const noWait = async () => {};
+const tierProxy = (name: string) => ({ newUrl: () => `http://${name}.proxy.test:8000` });
 const listing = (id = '1') => ({ id, title: 'Test public listing', price: { value: { raw: 10 } } });
 function mockRequest(handler: (url: URL, count: number) => unknown) {
   let calls = 0;
@@ -77,15 +79,98 @@ test('nonempty listings with zero reported pages are not counted as successful c
   assert.equal(result.summary.successfulSearchPages, 0);
 });
 
-test('contradictory final-page continuation cannot certify complete coverage', async () => {
-  const invalid = await scan({}, () => ({ data: [listing()], metadata: { total_pages: 1, next_page_url: '/api/search?page=1' } }));
-  assert.equal(invalid.calls, 3);
-  assert.equal(invalid.summary.outcome, 'failed');
-  assert.equal(invalid.summary.searchCoverageComplete, false);
-  const recovered = await scan({}, (_url, count) => ({ data: [listing()],
-    metadata: { total_pages: 1, ...(count === 1 ? { next_page_url: '/api/search?page=1' } : {}) } }));
-  assert.equal(recovered.calls, 2);
-  assert.equal(recovered.summary.outcome, 'complete');
+test('OLX next_page_url beyond its lazy total_pages estimate keeps paging instead of failing', async () => {
+  // Live OLX sends next_page_url on every page but the last and under-reports total_pages
+  // (e.g. 4 then 47, or 1 for a filtered search that still has more rows).
+  const page = (url: URL) => Number(url.searchParams.get('page'));
+  const result = await scan({}, (url) => page(url) < 2
+    ? { data: [listing(`p${page(url)}`)], metadata: { total_pages: 1, next_page_url: `/api/search?page=${page(url) + 1}` } }
+    : { data: [listing(`p${page(url)}`)], metadata: { total_pages: 1 } });
+  assert.equal(result.failure, undefined);
+  assert.equal(result.calls, 3);
+  assert.equal(result.records.length, 3);
+  assert.equal(result.summary.failedSearchPages, 0);
+  assert.equal(result.summary.outcome, 'complete');
+});
+
+test('a final page that still advertises a next page ends on the following empty page', async () => {
+  const result = await scan({}, (url) => url.searchParams.get('page') === '0'
+    ? { data: [listing()], metadata: { total_pages: 1, next_page_url: '/api/search?page=1' } }
+    : { data: [], metadata: { total_pages: 1 } });
+  assert.equal(result.calls, 2);
+  assert.equal(result.summary.failedSearchPages, 0);
+  assert.equal(result.summary.outcome, 'complete');
+  assert.equal(result.records.length, 1);
+});
+
+test('price limits are sent to OLX so narrow ranges do not page through unrelated rows', async () => {
+  const urls: URL[] = [];
+  await scan({ minPrice: 10000, maxPrice: 20000 }, (url) => { urls.push(url); return { data: [], metadata: { total_pages: 1 } }; });
+  assert.equal(urls[0].searchParams.get('price_min'), '10000');
+  assert.equal(urls[0].searchParams.get('price_max'), '20000');
+  const unfiltered: URL[] = [];
+  await scan({}, (url) => { unfiltered.push(url); return { data: [] }; });
+  assert.equal(unfiltered[0].searchParams.has('price_min'), false);
+  assert.equal(unfiltered[0].searchParams.has('price_max'), false);
+});
+
+test('a failing proxy tier costs one attempt, then the request succeeds on the next tier', async () => {
+  const escalations: string[] = [];
+  const proxy = createProxyTiers([{ name: 'direct', proxy: tierProxy('bad') }, { name: 'residential', proxy: tierProxy('good') }],
+    (from, to) => escalations.push(`${from}>${to}`));
+  const seen: string[] = [];
+  const request = (async (_url: string | URL, init?: { dispatcher?: { constructor: { name: string } } }) => {
+    seen.push(String(init?.dispatcher ? 'proxied' : 'direct'));
+    if (seen.length === 1) throw new Error('The operation was aborted due to timeout');
+    return new Response(JSON.stringify({ data: [] }), { headers: { 'content-type': 'application/json' } });
+  }) as unknown as typeof fetch;
+  const payload = await fetchJson('https://www.olx.in/test', { request, wait: noWait, proxyConfiguration: proxy, validate: validateSearchResponse });
+  assert.deepEqual(payload, { data: [] });
+  assert.equal(seen.length, 2);
+  assert.deepEqual(escalations, ['direct>residential']);
+  assert.equal(proxy.canEscalate?.(), false);
+});
+
+test('malformed responses and client errors do not burn the fallback proxy tier', async () => {
+  for (const respond of [() => new Response('{}', { status: 200 }), () => new Response('x', { status: 400 })]) {
+    const escalations: string[] = [];
+    const proxy = createProxyTiers([{ name: 'a', proxy: tierProxy('a') }, { name: 'b', proxy: tierProxy('b') }],
+      (from, to) => escalations.push(`${from}>${to}`));
+    const request = (async () => respond()) as unknown as typeof fetch;
+    await assert.rejects(fetchJson('https://www.olx.in/test', { request, wait: noWait, retries: 2, proxyConfiguration: proxy, validate: validateSearchResponse }));
+    assert.deepEqual(escalations, []);
+  }
+});
+
+test('shouldEscalateProxy separates network failures from deterministic ones', () => {
+  for (const message of ['The operation was aborted due to timeout', 'fetch failed', 'OLX returned retryable status 403', 'OLX returned retryable status 429']) {
+    assert.equal(shouldEscalateProxy(new Error(message)), true, message);
+  }
+  assert.equal(shouldEscalateProxy(new Error('OLX request failed with HTTP 404.')), false);
+  assert.equal(shouldEscalateProxy(new OlxResponseValidationError('invalid_metadata')), false);
+  assert.equal(shouldEscalateProxy('timeout'), false);
+});
+
+test('only direct, datacenter and group-less Apify proxy choices get a Residential fallback', () => {
+  assert.equal(needsResidentialFallback({ useApifyProxy: false }), true);
+  assert.equal(needsResidentialFallback(undefined), true);
+  assert.equal(needsResidentialFallback({ useApifyProxy: true }), true);
+  assert.equal(needsResidentialFallback({ useApifyProxy: true, apifyProxyGroups: ['BUYPROXIES94952'] }), true);
+  assert.equal(needsResidentialFallback({ useApifyProxy: true, apifyProxyGroups: ['RESIDENTIAL'] }), false);
+  assert.equal(needsResidentialFallback({ useApifyProxy: true, apifyProxyGroups: ['residential'] }), false);
+  assert.equal(needsResidentialFallback({ useApifyProxy: false, proxyUrls: ['http://custom.test:8000'] }), false);
+  assert.deepEqual(residentialFallbackConfig(undefined), { useApifyProxy: true, apifyProxyGroups: ['RESIDENTIAL'], apifyProxyCountry: 'IN' });
+  assert.equal(residentialFallbackConfig({ apifyProxyCountry: 'us' }).apifyProxyCountry, 'US');
+});
+
+test('proxy tiers escalate once per tier and never past the last one', async () => {
+  const proxy = createProxyTiers([{ name: 'direct' }, { name: 'residential', proxy: tierProxy('r') }]);
+  assert.equal(await proxy.newUrl(), undefined);
+  assert.equal(proxy.canEscalate?.(), true);
+  assert.equal(await proxy.escalate?.(), true);
+  assert.equal(await proxy.newUrl(), 'http://r.proxy.test:8000');
+  assert.equal(await proxy.escalate?.(), false);
+  assert.throws(() => createProxyTiers([]), /At least one proxy tier/);
 });
 
 test('one empty search plus another failed search is partial, not no matches', async () => {
