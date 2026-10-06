@@ -36,14 +36,14 @@ interface ProxyInput {
 }
 
 /**
- * OLX times out for direct and datacenter traffic, so these choices get Residential India as a
- * fallback. Custom proxy URLs are an explicit choice and are never replaced.
+ * Apify proxy configurations can fall back to Residential after a network failure.
+ * Explicit direct connections and custom proxies are never replaced with a paid proxy.
  */
 export function needsResidentialFallback(config: Record<string, unknown> | undefined): boolean {
   const input = (config ?? {}) as ProxyInput;
   if (Array.isArray(input.proxyUrls) && input.proxyUrls.length > 0) return false;
   if (input.newUrlFunction) return false;
-  if (!input.useApifyProxy) return true;
+  if (input.useApifyProxy !== true) return false;
   const groups = Array.isArray(input.apifyProxyGroups) ? input.apifyProxyGroups : [];
   return !groups.some((group) => typeof group === 'string' && group.toUpperCase() === 'RESIDENTIAL');
 }

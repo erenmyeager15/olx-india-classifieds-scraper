@@ -151,9 +151,9 @@ test('shouldEscalateProxy separates network failures from deterministic ones', (
   assert.equal(shouldEscalateProxy('timeout'), false);
 });
 
-test('only direct, datacenter and group-less Apify proxy choices get a Residential fallback', () => {
-  assert.equal(needsResidentialFallback({ useApifyProxy: false }), true);
-  assert.equal(needsResidentialFallback(undefined), true);
+test('only enabled datacenter and group-less Apify proxy choices get a Residential fallback', () => {
+  assert.equal(needsResidentialFallback({ useApifyProxy: false }), false);
+  assert.equal(needsResidentialFallback(undefined), false);
   assert.equal(needsResidentialFallback({ useApifyProxy: true }), true);
   assert.equal(needsResidentialFallback({ useApifyProxy: true, apifyProxyGroups: ['BUYPROXIES94952'] }), true);
   assert.equal(needsResidentialFallback({ useApifyProxy: true, apifyProxyGroups: ['RESIDENTIAL'] }), false);
