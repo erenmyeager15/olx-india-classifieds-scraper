@@ -54,6 +54,8 @@ Example listing-event cost: 1,000 saved listings cost `$2.00`; 10,000 saved list
 
 Each clean listing is saved and charged atomically. The Actor stops before further OLX search or detail requests when the user's maximum run cost is reached.
 
+The remaining listing budget is checked before proxy setup, location resolution, every source attempt, optional detail fetches, and dataset writes. A budget that cannot cover another listing produces a `limited` summary with `spending_limit`; it is not reported as an empty source or a source outage. Start charges and already incurred platform usage can still apply.
+
 To control cost, start with one keyword, one location, and `maxResults: 1`. Increase volume only after the sample output looks right. Keep item details and descriptions disabled for the cheapest first run; enable them only when you need richer fields. India Residential proxy is the default because direct and datacenter OLX requests have timed out intermittently.
 
 ## Input
@@ -63,8 +65,8 @@ To control cost, start with one keyword, one location, and `maxResults: 1`. Incr
 | `keywords` | string array | `["iphone"]` | Search terms such as `iphone`, `sofa`, `swift`, or `laptop`. Up to 10 items. |
 | `locations` | string array | `["Mumbai"]` | City, state, neighborhood, or `India`. Examples: `Mumbai`, `Delhi`, `Bengaluru`, `Maharashtra`. Up to 10 items. |
 | `categoryId` | string | empty | Optional OLX category ID. Leave empty to search all categories. |
-| `minPrice` | integer | empty | Optional minimum price in INR. |
-| `maxPrice` | integer | empty | Optional maximum price in INR. |
+| `minPrice` | integer | empty | Optional minimum price in INR, sent to the source and checked again locally. |
+| `maxPrice` | integer | empty | Optional maximum price in INR, sent to the source and checked again locally. |
 | `maxResults` | integer | `1` | Number of unique listings to save, up to 500. |
 | `includeItemDetails` | boolean | `false` | Fetch each item detail endpoint for richer fields. Enable only when needed. |
 | `includeDescription` | boolean | `false` | Include descriptions with contact-like strings redacted. |
@@ -189,8 +191,10 @@ If a specific location cannot be resolved, the actor skips it instead of silentl
 
 - Phone numbers and email addresses are intentionally not exposed. `hasPhoneParam` tells you whether OLX indicates contact data exists.
 - OLX category names are returned when the search metadata exposes them. Otherwise `category` can be null while `categoryId` remains available.
-- Price filters are applied after records are fetched from OLX, so very narrow ranges may require a broader `maxResults` setting.
+- Price filters are sent to OLX and checked again locally. A narrow range may legitimately return fewer than `maxResults` listings.
 - OLX may change or restrict its public endpoints. India Residential proxy is the reliable default; direct or datacenter configurations can still be selected but may be blocked.
+- Requests retain the 20-second deadline, with at most three attempts. Ordinary non-retryable HTTP errors and responses over 8 MiB stop without repeating the same request. Native proxy connections are destroyed after use, including after a stalled body is aborted.
+- `OLX-RUN-SUMMARY` includes fixed terminal error counts such as `request_timeout`, `network_failure`, `http_error`, or validation categories. Fatal failures also identify the stage (`input`, `proxy`, `source`, or `dataset_write`). Credentials and response bodies are not included. Recovered retries do not appear as terminal failures; abrupt platform stops may still prevent summary persistence.
 - This actor is not affiliated with OLX.
 
 ## Responsible Use

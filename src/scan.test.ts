@@ -6,6 +6,7 @@ import { createProxyTiers, needsResidentialFallback, residentialFallbackConfig }
 import { buildRunSummary, createScanProgress, runStatusMessage } from './summary.js';
 import { OlxResponseValidationError, validateSearchResponse } from './validation.js';
 import type { ActorInput, OlxListingRecord } from './types.js';
+import { OlxBudgetLimitError } from './request.js';
 
 const noWait = async () => {};
 const tierProxy = (name: string) => ({ newUrl: () => `http://${name}.proxy.test:8000` });
@@ -311,4 +312,62 @@ test('fatal errors preserve saved rows and explicit failure even after successfu
   assert.equal(summary.outcome, 'failed');
   assert.equal(summary.savedListings, 1);
   assert.equal(summary.searchCoverageComplete, false);
+});
+
+test('a zero listing budget prevents both location resolution and source searches', async () => {
+  const input = normalizeInput({ locations: ['Unknown location'] });
+  const progress = createScanProgress(input);
+  const mock = mockRequest(() => ({ data: [] }));
+  const generator = scrapeOlxListings(input, undefined, progress,
+    { request: mock.request, wait: noWait, canContinue: () => false });
+  await assert.rejects(generator.next(), OlxBudgetLimitError);
+  assert.equal(mock.count(), 0);
+  const summary = buildRunSummary(progress, 0, true);
+  assert.equal(summary.outcome, 'limited');
+  assert.equal(summary.failedSearchPages, 0);
+  assert.deepEqual(summary.terminalErrorCategories, {});
+});
+
+test('a budget stop after one saved row prevents the next detail request or page', async () => {
+  const input = normalizeInput({ maxResults: 25, includeItemDetails: true });
+  const progress = createScanProgress(input);
+  let available = true;
+  const mock = mockRequest((requestUrl) => requestUrl.pathname.startsWith('/api/items/')
+    ? { data: listing('1') } : { data: [listing('1'), listing('2')], metadata: { total_pages: 2 } });
+  const generator = scrapeOlxListings(input, undefined, progress,
+    { request: mock.request, wait: noWait, canContinue: () => available });
+  assert.equal((await generator.next()).value?.listingId, '1');
+  available = false;
+  await assert.rejects(generator.next(), OlxBudgetLimitError);
+  assert.equal(mock.count(), 2);
+  const summary = buildRunSummary(progress, 1, true);
+  assert.equal(summary.outcome, 'limited');
+  assert.equal(summary.savedListings, 1);
+  assert.equal(summary.detailRequests, 1);
+  assert.equal(summary.failedSearchPages, 0);
+});
+
+test('failed source requests retain fixed terminal categories without exposing private text', async () => {
+  const result = await scan({}, () => new Error('Proxy private-password refused connection'));
+  assert.equal(result.summary.outcome, 'failed');
+  assert.deepEqual(result.summary.terminalErrorCategories, { network_failure: 1 });
+  assert.doesNotMatch(JSON.stringify(result.summary), /private-password/);
+});
+
+test('recovered request failures do not become terminal source errors', async () => {
+  const result = await scan({}, (_url, count) => count === 1 ? new Error('timed out') : { data: [] });
+  assert.equal(result.summary.outcome, 'empty');
+  assert.deepEqual(result.summary.terminalErrorCategories, {});
+});
+
+test('failure summaries identify the failing stage without inventing source failures', () => {
+  const progress = createScanProgress(normalizeInput({}));
+  progress.successfulSearchPages = 1;
+  progress.yieldedListings = 2;
+  const summary = buildRunSummary(progress, 1, false, true,
+    { stage: 'dataset_write', category: 'unexpected_error' });
+  assert.equal(summary.outcome, 'failed');
+  assert.equal(summary.savedListings, 1);
+  assert.equal(summary.failedSearchPages, 0);
+  assert.deepEqual(summary.failureDiagnostic, { stage: 'dataset_write', category: 'unexpected_error' });
 });

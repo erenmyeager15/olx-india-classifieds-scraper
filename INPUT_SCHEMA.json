@@ -29,14 +29,14 @@
     "minPrice": {
       "title": "Minimum price",
       "type": "integer",
-      "description": "Optional minimum listing price in INR. Applied after results are fetched from OLX.",
+      "description": "Optional minimum listing price in INR. Sent to OLX and checked again locally.",
       "editor": "number",
       "minimum": 0
     },
     "maxPrice": {
       "title": "Maximum price",
       "type": "integer",
-      "description": "Optional maximum listing price in INR. Applied after results are fetched from OLX.",
+      "description": "Optional maximum listing price in INR. Sent to OLX and checked again locally.",
       "editor": "number",
       "minimum": 0
     },

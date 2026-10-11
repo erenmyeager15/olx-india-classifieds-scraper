@@ -18,6 +18,7 @@ export interface ScanProgress {
   failedDetailRequests: number;
   yieldedListings: number;
   resultLimitReached: boolean;
+  terminalErrorCategories: Record<string, number>;
 }
 
 export type RunOutcome = 'complete' | 'empty' | 'partial' | 'limited' | 'failed';
@@ -41,6 +42,7 @@ export function createScanProgress(input?: NormalizedInput): ScanProgress {
     failedDetailRequests: 0,
     yieldedListings: 0,
     resultLimitReached: false,
+    terminalErrorCategories: {},
   };
 }
 
@@ -49,6 +51,7 @@ export function buildRunSummary(
   savedListings: number,
   spendingLimitReached = false,
   runFailed = false,
+  failureDiagnostic?: { stage: string; category: string },
 ) {
   const limitationReasons: string[] = [];
   if (progress.resultLimitReached) limitationReasons.push('max_results');
@@ -107,6 +110,8 @@ export function buildRunSummary(
     failedDetailRequests: progress.failedDetailRequests,
     limitationReasons,
     coverageWarnings,
+    terminalErrorCategories: { ...progress.terminalErrorCategories },
+    ...(failureDiagnostic ? { failureDiagnostic } : {}),
     finishedAt: new Date().toISOString(),
   };
 }

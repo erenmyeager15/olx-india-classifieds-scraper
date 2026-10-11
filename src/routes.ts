@@ -2,6 +2,7 @@ import { Actor, log } from 'apify';
 import { fetch, ProxyAgent } from 'undici';
 import { createScanProgress, type ScanProgress } from './summary.js';
 import { validateSearchResponse, validateLocationResponse, validateItemResponse, OlxResponseValidationError } from './validation.js';
+import { assertRequestBudget, errorCategory, OlxBudgetLimitError, OlxRequestError, readBoundedJson, safeRequestError } from './request.js';
 import type {
   ActorInput,
   LocationTarget,
@@ -59,11 +60,15 @@ export interface FetchOptions<T = unknown> {
   validate?: (value: unknown) => T;
   request?: typeof fetch;
   wait?: (ms: number) => Promise<void>;
+  canContinue?: () => boolean;
+  /** Internal test/diagnostic override, capped to the normal 20-second request deadline. */
+  timeoutMillis?: number;
 }
 
 export interface ScrapeDependencies {
   request?: typeof fetch;
   wait?: (ms: number) => Promise<void>;
+  canContinue?: () => boolean;
 }
 
 export function normalizeInput(input: ActorInput | null | undefined): NormalizedInput {
@@ -108,6 +113,7 @@ export async function* scrapeOlxListings(
   progress: ScanProgress = createScanProgress(input),
   dependencies: ScrapeDependencies = {},
 ): AsyncGenerator<OlxListingRecord> {
+  assertRequestBudget(dependencies.canContinue);
   const seenIds = new Set<string>();
   const categoryNames = new Map<string, string>();
   const resolvedLocations = await resolveLocationTargets(input.locations, proxyConfiguration, dependencies, progress);
@@ -124,6 +130,7 @@ export async function* scrapeOlxListings(
   const wait = dependencies.wait ?? sleep;
   while (yielded < input.maxResults && jobs.some((job) => !job.done)) {
     for (const job of jobs) {
+      assertRequestBudget(dependencies.canContinue);
       if (yielded >= input.maxResults) break;
       if (job.done) continue;
       if (!job.started) {
@@ -162,6 +169,8 @@ export async function* scrapeOlxListings(
         });
         progress.successfulSearchPages += 1;
       } catch (error) {
+        if (error instanceof OlxBudgetLimitError) throw error;
+        noteSourceFailure(progress, error);
         progress.failedSearchPages += 1;
         progress.failedSearchJobs += 1;
         job.done = true;
@@ -194,6 +203,7 @@ export async function* scrapeOlxListings(
 
       let acceptedOnPage = 0;
       for (const listing of listings) {
+        assertRequestBudget(dependencies.canContinue);
         if (yielded >= input.maxResults) break;
 
         const listingId = listing.id ?? listing.ad_id;
@@ -205,8 +215,9 @@ export async function* scrapeOlxListings(
         let detail: OlxRawListing | undefined;
         if (input.includeItemDetails) {
           await wait(randomInt(150, 500));
+          assertRequestBudget(dependencies.canContinue);
           progress.detailRequests += 1;
-          detail = await fetchItemDetails(listingId, proxyConfiguration, dependencies);
+          detail = await fetchItemDetails(listingId, proxyConfiguration, dependencies, progress);
           if (!detail) progress.failedDetailRequests += 1;
         }
 
@@ -276,6 +287,7 @@ export async function resolveLocationTargets(
   const targets: LocationTarget[] = [];
 
   for (const location of locations) {
+    assertRequestBudget(dependencies.canContinue);
     if (!location || /^india$/i.test(location)) {
       targets.push({ query: location || 'India' });
       if (progress) progress.resolvedLocations += 1;
@@ -294,6 +306,8 @@ export async function resolveLocationTargets(
     try {
       response = await fetchJson(url, { proxyConfiguration, ...dependencies, validate: validateLocationResponse });
     } catch (error) {
+      if (error instanceof OlxBudgetLimitError) throw error;
+      if (progress) noteSourceFailure(progress, error);
       if (progress) progress.skippedLocations += 1;
       log.warning(`Could not resolve OLX location after retries; skipping location`, {
         location,
@@ -331,6 +345,7 @@ export async function resolveLocationTargets(
 
 async function fetchItemDetails(
   id: string, proxyConfiguration?: ProxyLike, dependencies: ScrapeDependencies = {},
+  progress?: ScanProgress,
 ): Promise<OlxRawListing | undefined> {
   try {
     const url = `${OLX_BASE_URL}/api/items/${encodeURIComponent(id)}`;
@@ -339,13 +354,15 @@ async function fetchItemDetails(
       validate: (payload) => {
         const validated = validateItemResponse(payload);
         if ((validated.data.id ?? validated.data.ad_id) !== id) {
-          throw new Error('OLX item response identity did not match the requested listing.');
+          throw new OlxResponseValidationError('invalid_item_response');
         }
         return validated;
       },
     });
     return response.data;
   } catch (error) {
+    if (error instanceof OlxBudgetLimitError) throw error;
+    if (progress) noteSourceFailure(progress, error);
     log.debug(`Skipping item detail after failed request`, {
       id,
       error: error instanceof Error ? error.message : String(error),
@@ -380,11 +397,20 @@ export function buildSearchUrl(
 
 export async function fetchJson<T>(url: string, options: FetchOptions<T> = {}): Promise<T> {
   const retries = options.retries ?? DEFAULT_REQUEST_RETRIES;
+  if (!Number.isSafeInteger(retries) || retries < 1 || retries > DEFAULT_REQUEST_RETRIES) {
+    throw new Error('OLX requests must use between one and three bounded attempts.');
+  }
+  const timeoutMillis = options.timeoutMillis ?? REQUEST_TIMEOUT_MILLIS;
+  if (!Number.isSafeInteger(timeoutMillis) || timeoutMillis < 1 || timeoutMillis > REQUEST_TIMEOUT_MILLIS) {
+    throw new Error('OLX request deadline must be between 1 and 20000 milliseconds.');
+  }
   let lastError: unknown;
 
   for (let attempt = 1; attempt <= retries; attempt += 1) {
+    assertRequestBudget(options.canContinue);
     try {
       const proxyUrl = options.proxyConfiguration ? await options.proxyConfiguration.newUrl() : undefined;
+      assertRequestBudget(options.canContinue);
       const dispatcher = proxyUrl ? new ProxyAgent(proxyUrl) : undefined;
       try {
         const response = await (options.request ?? fetch)(url, {
@@ -398,28 +424,33 @@ export async function fetchJson<T>(url: string, options: FetchOptions<T> = {}): 
             'x-platform-type': 'web-desktop',
           },
           dispatcher,
-          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MILLIS),
+          signal: AbortSignal.timeout(timeoutMillis),
         });
 
         if (BLOCKED_STATUS_CODES.has(response.status)) {
           await response.body?.cancel();
-          throw new Error(`OLX returned retryable status ${response.status}`);
+          throw new OlxRequestError('http_error', true, response.status);
         }
         if (!response.ok) {
           await response.body?.cancel();
-          throw new Error(`OLX request failed with HTTP ${response.status}.`);
+          throw new OlxRequestError('http_error', false, response.status);
         }
 
-        const payload: unknown = await response.json();
+        const payload: unknown = await readBoundedJson(response);
         return options.validate ? options.validate(payload) : payload as T;
       } finally {
-        await dispatcher?.close();
+        // Do not wait for graceful keep-alive shutdown after an aborted/oversized response.
+        await dispatcher?.destroy();
       }
     } catch (error) {
-      lastError = error;
+      const safeError = safeRequestError(error);
+      if (safeError instanceof OlxBudgetLimitError) throw safeError;
+      lastError = safeError;
+      assertRequestBudget(options.canContinue);
+      if (safeError instanceof OlxRequestError && !safeError.retryable) break;
       // Move to a more reliable proxy tier right away, even on the last attempt, so the next
       // request starts on it instead of repeating the same timeout.
-      const escalated = shouldEscalateProxy(error) && Boolean(await options.proxyConfiguration?.escalate?.());
+      const escalated = shouldEscalateProxy(safeError) && Boolean(await options.proxyConfiguration?.escalate?.());
       if (attempt === retries) break;
       await (options.wait ?? sleep)(escalated ? randomInt(200, 600) : 1_000 * 2 ** (attempt - 1) + randomInt(500, 1_500));
     }
@@ -433,10 +464,20 @@ export async function fetchJson<T>(url: string, options: FetchOptions<T> = {}): 
  * Malformed responses and ordinary client errors would fail identically on any proxy.
  */
 export function shouldEscalateProxy(error: unknown): boolean {
+  if (error instanceof OlxBudgetLimitError) return false;
+  if (error instanceof OlxRequestError) {
+    return error.category === 'network_failure' || error.category === 'request_timeout'
+      || (error.category === 'http_error' && error.retryable);
+  }
   if (error instanceof OlxResponseValidationError) return false;
   if (!(error instanceof Error)) return false;
   if (/^OLX request failed with HTTP \d+\.$/.test(error.message)) return false;
   return true;
+}
+
+function noteSourceFailure(progress: ScanProgress, error: unknown): void {
+  const category = errorCategory(error);
+  progress.terminalErrorCategories[category] = (progress.terminalErrorCategories[category] ?? 0) + 1;
 }
 
 export function normalizeListing(args: {
